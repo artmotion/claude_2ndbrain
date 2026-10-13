@@ -49,6 +49,13 @@ Three pieces; this open-source repo holds the first two.
   refusals anywhere; every server behaves as the old billing-disabled self-host (unlimited, the
   Assistant and standalone-file sync always on). Migration 056 drops the billing tables; the older
   billing migrations stay for databases that already applied them.
+- **iPad app** (same `app/apps/desktop` crate, Tauri iOS) — `.github/workflows/ios-build.yml` runs
+  `tauri ios init --ci` (the Xcode project under `src-tauri/gen/apple` is generated, not committed),
+  builds unsigned for the simulator and for devices, screenshots the app in an iPad simulator and
+  publishes the `.ipa` to the `ios-dev` prerelease. iOS config: `tauri.ios.conf.json` +
+  `Info.ios.plist`. Desktop-only commands keep their names on iOS through stand-ins in
+  `src-tauri/src/mobile/` (`#[cfg(mobile)] #[path]`); desktop-only capabilities live in
+  `capabilities/desktop.json`. Windows installers come from `.github/workflows/windows-build.yml`.
 - **Origin** — 2ndBrain is a personal fork of [Baalda](https://github.com/naveedharri/baalda)
   (Apache-2.0). Upstream's managed service, website, trademark policy and `ee/` directory are not
   part of this fork.

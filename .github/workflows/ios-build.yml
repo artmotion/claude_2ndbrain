@@ -20,7 +20,7 @@ name: iOS build
 on:
   workflow_dispatch:
   push:
-    branches: [main, claude/ios-phase0]
+    branches: [main, claude/baalda-project-setup-zet4z2, claude/ios-phase0]
     paths:
       - "app/**"
       - ".github/workflows/ios-build.yml"
