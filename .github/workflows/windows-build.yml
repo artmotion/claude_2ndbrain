@@ -11,7 +11,7 @@ name: Windows build
 on:
   workflow_dispatch:
   push:
-    branches: [main, "claude/**"]
+    branches: [main, claude/baalda-project-setup-zet4z2]
     paths:
       - "app/**"
       - ".github/workflows/windows-build.yml"

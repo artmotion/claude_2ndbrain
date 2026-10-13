@@ -22,7 +22,6 @@
     },
     "dialog:default",
     "fs:default",
-    "updater:default",
     "process:default",
     {
       "identifier": "core:window:allow-set-focus",

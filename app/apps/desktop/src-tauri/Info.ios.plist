@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Extra Info.plist keys merged into the iOS/iPadOS bundle by `tauri ios build`
+  (on top of Info.plist, which carries the shared usage descriptions).
+
+  UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace make the app's
+  Documents folder — where vaults live on iPad — visible and editable in the
+  Files app, so the `.md` files stay plain files other apps can open.
+  CFBundleDisplayName keeps the home-screen name "2ndBrain" whatever name the
+  generated Xcode target carries.
+-->
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>2ndBrain</string>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+</dict>
+</plist>

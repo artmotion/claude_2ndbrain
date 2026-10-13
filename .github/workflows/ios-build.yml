@@ -1,0 +1,166 @@
+# iPad "Phase 0": build the app for iOS/iPadOS entirely in CI, with no Apple
+# Developer account and therefore no signing.
+#
+#   1. Simulator build (arm64-sim, debug), installed and launched in an iPad
+#      simulator; screenshots, the app's log and its stdout/stderr are kept so
+#      a black screen or a crash is diagnosable without a Mac.
+#   2. Unsigned device build (arm64, release) packaged as an .ipa
+#      (Payload/<App>.app, zipped). Sign and install it yourself, e.g. with
+#      Sideloadly + a free Apple ID.
+#
+# Everything is uploaded as a workflow artifact and to the rolling `ios-dev`
+# prerelease (one stable download link; production's updater resolves
+# `releases/latest`, which skips prereleases).
+#
+# The Xcode project (src-tauri/gen/apple) is NOT committed: `tauri ios init`
+# generates it fresh on every run from tauri.conf.json + tauri.ios.conf.json,
+# so it never carries a signing team id or goes stale.
+name: iOS build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, claude/ios-phase0]
+    paths:
+      - "app/**"
+      - ".github/workflows/ios-build.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUNDLE_ID: com.artmotion.secondbrain
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/apps/desktop/src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tooling versions
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+          command -v xcodegen || brew install xcodegen
+          xcodegen --version
+
+      - name: Generate the Xcode project
+        run: pnpm --filter desktop tauri ios init --ci
+
+      - name: Build for the iOS simulator (arm64, debug, unsigned)
+        env:
+          VITE_SERVER_URL: ${{ vars.SERVER_URL }}
+        run: pnpm --filter desktop tauri ios build --target aarch64-sim --debug --no-sign --ci
+
+      - name: Boot an iPad simulator, launch, screenshot
+        run: |
+          set -u
+          mkdir -p ../dist-ios
+          APP=$(find apps/desktop/src-tauri/gen/apple/build -maxdepth 3 -type d -name '*.app' -path '*sim*' | head -n1)
+          echo "Simulator app: $APP"
+          test -n "$APP"
+          EXE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          echo "Executable: $EXE"
+          /usr/libexec/PlistBuddy -c 'Print' "$APP/Info.plist" > ../dist-ios/ios-sim-Info.plist.txt || true
+          # Newest available iOS runtime, then an iPad on it (prefer iPad Pro).
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys, re
+          data = json.load(sys.stdin)["devices"]
+          def ver(rt):
+              m = re.search(r"iOS-(\d+)-(\d+)", rt)
+              return (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+          for rt in sorted((r for r in data if "iOS" in r), key=ver, reverse=True):
+              pads = [d for d in data[rt] if d["name"].startswith("iPad")]
+              if pads:
+                  pads.sort(key=lambda d: (0 if "Pro" in d["name"] else 1, d["name"]))
+                  print(pads[0]["udid"]); print(pads[0]["name"] + " / " + rt, file=sys.stderr)
+                  break
+          ')
+          echo "Simulator: $UDID"
+          test -n "$UDID"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch --terminate-running-process \
+            --stdout="$PWD/../dist-ios/ios-sim-stdout.log" \
+            --stderr="$PWD/../dist-ios/ios-sim-stderr.log" \
+            "$UDID" "$BUNDLE_ID" || echo "::warning::simctl launch failed"
+          sleep 20
+          xcrun simctl io "$UDID" screenshot ../dist-ios/ios-sim-screenshot.png
+          sleep 20
+          xcrun simctl io "$UDID" screenshot ../dist-ios/ios-sim-screenshot-40s.png
+          xcrun simctl spawn "$UDID" log show --last 5m --style compact \
+            --predicate "process == \"$EXE\" OR subsystem == \"$BUNDLE_ID\"" \
+            > ../dist-ios/ios-sim-app.log 2>&1 || true
+          # Any crash report for the app (simulator crashes land on the host).
+          for f in ~/Library/Logs/DiagnosticReports/*"$EXE"*; do
+            [ -e "$f" ] && cp "$f" ../dist-ios/ios-sim-crash-$(basename "$f")
+          done
+          xcrun simctl listapps "$UDID" | grep -A3 "$BUNDLE_ID" || true
+          ls -l ../dist-ios
+
+      - name: Build for iOS devices (arm64, release, unsigned .ipa)
+        if: always()
+        env:
+          VITE_SERVER_URL: ${{ vars.SERVER_URL }}
+        run: |
+          pnpm --filter desktop tauri ios build --target aarch64 --no-sign --ci
+          IPA=$(find apps/desktop/src-tauri/gen/apple/build -maxdepth 3 -name '*.ipa' | head -n1)
+          echo "IPA: $IPA"
+          test -n "$IPA"
+          mkdir -p ../dist-ios
+          cp "$IPA" ../dist-ios/2ndBrain-unsigned.ipa
+          unzip -l ../dist-ios/2ndBrain-unsigned.ipa | head -n 20
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 2ndBrain-ios-${{ github.sha }}
+          path: dist-ios/*
+          if-no-files-found: warn
+
+      - name: Publish to the rolling ios-dev prerelease
+        if: always()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ios-dev
+          name: 2ndBrain iOS dev build
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          body: |
+            iOS/iPadOS Phase 0 build of `${{ github.sha }}` from `${{ github.ref_name }}`.
+
+            - `2ndBrain-unsigned.ipa`: UNSIGNED device build (arm64). Sign and install it
+              yourself (e.g. Sideloadly with a free Apple ID; such installs expire after 7 days).
+            - `ios-sim-screenshot*.png`, `ios-sim-*.log`: the simulator build launched in an
+              iPad simulator by CI.
+          files: dist-ios/*
+          fail_on_unmatched_files: false

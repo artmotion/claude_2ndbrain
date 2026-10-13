@@ -4,6 +4,18 @@
 
 pub mod attachments;
 pub mod checks;
+// Desktop-only modules and their iOS/iPadOS stand-ins (`src/mobile/`). Each
+// stand-in keeps the same command names, so the handler list below is shared
+// by every platform; on mobile those commands return a clear `AppError` (or an
+// empty answer where "nothing here" is the truth, e.g. no agent CLIs).
+//   clipboard        — arboard has no iOS backend
+//   dashboard_remote — native child webviews need Tauri's desktop-only
+//                      multi-webview API
+//   agent_runner     — spawns local CLIs; iOS apps cannot spawn processes
+#[cfg(desktop)]
+mod clipboard;
+#[cfg(mobile)]
+#[path = "mobile/clipboard.rs"]
 mod clipboard;
 // `pub` so the integration tests can drive the batch appliers
 // (`apply_bootstrap_entries`, `materialize_notes`) directly: they are the whole
@@ -11,7 +23,15 @@ mod clipboard;
 // and the `#[tauri::command]` wrappers around them are only frame decoding.
 pub mod commands;
 pub mod dashboard;
+#[cfg(desktop)]
 mod dashboard_remote;
+#[cfg(mobile)]
+#[path = "mobile/dashboard_remote.rs"]
+mod dashboard_remote;
+#[cfg(desktop)]
+mod agent_runner;
+#[cfg(mobile)]
+#[path = "mobile/agent_runner.rs"]
 mod agent_runner;
 mod error;
 pub mod folder_safety;
@@ -34,7 +54,6 @@ mod watcher;
 use state::AppState;
 use tauri::Manager;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Open the main window at a size that suits the screen it lands on: about
 /// 79% × 88% of the monitor's work area, centered, never smaller than the
 /// 1200×800 in `tauri.conf.json` unless the screen itself is, and capped so a
@@ -69,6 +88,9 @@ fn fit_window_to_screen(win: &tauri::WebviewWindow) {
     log::info!("[window] sized to {w:.0}×{h:.0} on a {avail_w:.0}×{avail_h:.0} work area");
 }
 
+// The entry point must sit on `run` itself: on iOS the generated Xcode
+// project calls the `start_app` symbol this attribute emits.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
 
@@ -196,6 +218,13 @@ pub fn run() {
                         let _ = win.set_focus();
                     }
                 });
+            }
+            // iOS/iPadOS: one full-screen window with nothing to size or
+            // decorate. Reveal it at once rather than waiting on the
+            // frontend's first paint — a hidden window there is a black screen.
+            #[cfg(mobile)]
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
             }
             Ok(())
         })
