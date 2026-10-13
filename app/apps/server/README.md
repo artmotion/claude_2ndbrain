@@ -1,6 +1,6 @@
-# Baalda — Sync + App Server
+# 2ndBrain — Sync + App Server
 
-The Node/TypeScript server for **Baalda**: Better Auth (accounts +
+The Node/TypeScript server for **2ndBrain**: Better Auth (accounts +
 organizations), a folder/file ACL, per-doc sync-token minting, and a Hocuspocus
 Yjs sync engine backed by Postgres (binary Y.Doc store + compaction).
 

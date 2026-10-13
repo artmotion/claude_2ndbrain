@@ -1,4 +1,4 @@
-# Baalda Assistant
+# 2ndBrain Assistant
 
 **Vault Settings → AI → Scan vault** collects fresh whole-vault measurements and
 asks the selected model to produce a prioritized action plan. AI has Diagnostics
@@ -10,7 +10,7 @@ other OpenRouter chat models supporting structured output can be selected.
 
 ## Evidence and decisions
 
-Baalda runs the 15 filesystem/index integrity checks and gathers vault size, note
+2ndBrain runs the 15 filesystem/index integrity checks and gathers vault size, note
 and file counts, largest-file size, history/index footprint, sync state, failure
 categories and local/remote file differences. The model receives measurements
 and categories, not raw note text, file paths or error logs. The UI joins returned
@@ -39,7 +39,7 @@ Basic Health retains its sync overview and links to individual findings here.
 
 Create a key at <https://openrouter.ai/settings/keys>, enable OpenRouter in AI,
 and save the key. Keys live in the OS keychain, scoped to account and server.
-Inference passes the key through the selected Baalda server to OpenRouter; the
+Inference passes the key through the selected 2ndBrain server to OpenRouter; the
 server does not persist it or fall back to server credentials. Use a server you
 trust. OpenRouter bills the user's account. Status/apply/undo do not include the
 provider key. The provider toggle and model preference persist without storing
@@ -101,7 +101,7 @@ Provider references: [OpenRouter SDK](https://openrouter.ai/docs/client-sdks/typ
 
 ## Agent action lifecycle
 
-The Baalda Agents contract is **observe → investigate → propose → approve →
+The 2ndBrain Agents contract is **observe → investigate → propose → approve →
 execute → verify**. Model output chooses a typed capability; it is never executable
 code. Investigation may gather additional permission-filtered evidence for a
 specific finding. Link replacement previews and legal-filename plans show concrete
@@ -137,9 +137,9 @@ arbitrary YAML rewrites and content deduplication are not supported repairs.
 
 ## Deployment policy
 
-Set `BAALDA_DEPLOYMENT=self-hosted` for self-hosted installations (included in
+Set `SECONDBRAIN_DEPLOYMENT=self-hosted` for self-hosted installations (included in
 `.env.example`). The Assistant remains available whether billing is absent, configured
 at installation, or added later. Operator billing configuration is independent.
-`BAALDA_DEPLOYMENT=cloud` requires Pro for AI and limits Free vaults to 20,000 synced
+`SECONDBRAIN_DEPLOYMENT=cloud` requires Pro for AI and limits Free vaults to 20,000 synced
 notes (under `BILLING_MODEL=team`: Team for AI, and the `ABUSE_MAX_NOTES` ceiling). Omission defaults to `cloud` so existing Cloud deployments remain guarded,
 even if payment credentials are missing. Self-hosters bypass this Cloud note cap.

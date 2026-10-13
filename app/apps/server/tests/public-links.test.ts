@@ -115,7 +115,7 @@ describe("public note links", () => {
     const html = await res.text();
     expect(html).toContain("<strong>shared</strong>");
     expect(html).toContain("<h1>Hello</h1>");
-    // The private-link flow rides along: an Open in Baalda button through the
+    // The private-link flow rides along: an Open in 2ndBrain button through the
     // same /open/note landing (ids carry identity, never access).
     expect(html).toContain(`/open/note/${orgId}/${docId}`);
   });

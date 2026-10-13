@@ -1,4 +1,4 @@
-# Self-host the Baalda server on Coolify
+# Self-host the 2ndBrain server on Coolify
 
 Same stack as [`deploy/compose`](../compose) (Postgres + migrate-before-start +
 single-port server), packaged so Coolify's Docker Compose build pack resolves

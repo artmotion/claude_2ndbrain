@@ -18,10 +18,10 @@ describe("resolveServerUrl (dev build)", () => {
   });
 
   it("ignores a persisted production URL", () => {
-    // The reported state: config.json held api.baalda.com, so every launch of
+    // The reported state: config.json held api.secondbrain.example, so every launch of
     // `pnpm dev:desktop` was reading and writing real vaults.
     expect(resolveServerUrl(PRODUCTION_SERVER_URL)).toBe(LOCAL_SERVER_URL);
-    expect(resolveServerUrl("https://api.baalda.com/")).toBe(LOCAL_SERVER_URL);
+    expect(resolveServerUrl("https://api.secondbrain.example/")).toBe(LOCAL_SERVER_URL);
   });
 
   it("honours any other persisted server", () => {

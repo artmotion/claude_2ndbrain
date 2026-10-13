@@ -1,12 +1,12 @@
-# Baalda
+# 2ndBrain
 
-**Context** is the permanent internal codename; **Baalda** is the brand. A local-first desktop "second
+**Context** is the permanent internal codename; **2ndBrain** is the brand. A local-first desktop "second
 brain" where notes are plain `.md` files on disk that an AI can edit directly **and** that teammates
 edit together in real time. Every OSS competitor does one or the other; the whole product is the
 *bridge* between them.
 
 - All product docs live under `docs/` (only this `CLAUDE.md` stays at the repo root).
-- Docs index: `docs/Baalda.md` · live build status: `docs/STATUS.md` · branding policy: `docs/BRANDING.md`
+- Docs index: `docs/2ndBrain.md` · live build status: `docs/STATUS.md` · branding policy: `docs/BRANDING.md`
 - Specs (source of truth for design): `docs/specs/00`–`04` + `docs/specs/REQUIREMENTS.md` (the 12-requirement yardstick)
 
 ## System landscape (what lives where)
@@ -32,18 +32,20 @@ Three pieces; this open-source repo holds the first two.
   `MIN_CLIENT_VERSION_GRACE_MINUTES` (60) after boot a raised floor only refuses builds below 0.1.49.
   Because of that, review happens *before* main: PRs target the long-lived **`staging`** branch,
   and every push to it runs `.github/workflows/staging-release.yml`, which publishes a separate
-  auto-updating **"Baalda Staging"** app (`com.baalda.context.staging`, version
+  auto-updating **"2ndBrain Staging"** app (`com.artmotion.secondbrain.staging`, version
   `<base>-staging.<run#>`, server from the `STAGING_SERVER_URL` Actions variable) into one rolling
   GitHub *prerelease* tagged `staging` — invisible to production's updater, which resolves
   `releases/latest` and so skips prereleases. Promotion is a fast-forward `staging` → `main` plus
   the four-file version bump; see `docs/RELEASE.md` → Staging.
 - **Backend server** (`app/apps/server`) — open source and self-hostable (Node + Postgres).
-  The managed option runs this **same server code**, publicly reachable at
-  `https://api.baalda.com`; users choose an instance via the server URL in Settings. There is
-  no separate "managed edition" of the server. Self-host/deploy guide: `docs/DEPLOY.md`.
-- **Website + managed service** — lives outside this public repo. The README links
-  [baalda.com](https://baalda.com) as the managed option, and that is the only mention this
-  repo gets.
+  This fork offers **no hosted service**: the owner self-hosts it with Docker (`deploy/compose/`)
+  and points the app at it via the server URL in Settings. The desktop code still carries the
+  upstream "managed server" option with a placeholder URL (`https://api.secondbrain.example`,
+  `lib/api.ts PRODUCTION_SERVER_URL`); it is slated for removal. Self-host/deploy guide:
+  `docs/DEPLOY.md`.
+- **Origin** — 2ndBrain is a personal fork of [Baalda](https://github.com/naveedharri/baalda)
+  (Apache-2.0). Upstream's managed service, website, trademark policy and `ee/` directory are not
+  part of this fork.
 
 **Boundary rule:** this repo is public. Never commit anything about how *our* managed instance
 is operated — hosting/provider, deploy config for our instance, domains/DNS, dashboards,
@@ -72,7 +74,7 @@ Monorepo at `app/` (pnpm workspaces + Turborepo; pnpm pinned via `packageManager
 app/
 ├── apps/desktop/   Tauri v2 app. Rust core (src-tauri/) + React/Vite/TS UI (src/)
 └── apps/server/    Node/TS: Hono HTTP + Hocuspocus WS + Postgres + Better Auth + MCP
-docs/               Baalda.md (index) · STATUS.md · specs/
+docs/               2ndBrain.md (index) · STATUS.md · specs/
 ```
 
 **Division of labor:** Rust owns *all* disk I/O and a derived SQLite index. The React/TS layer owns the
@@ -102,7 +104,7 @@ pnpm run dev              # tsx watch; HTTP :3010, Hocuspocus WS :3011, GET /hea
 ```
 
 **Desktop** (from `app/`): `pnpm run dev:desktop` (= `pnpm --filter desktop tauri dev --config src-tauri/tauri.dev.conf.json`; Vite on :1420).
-The dev config registers the `baalda-dev://` scheme, so a dev build never claims production's `baalda://`; macOS cannot route deep links to `tauri dev`, so the checkout success page skips the hand-back for it.
+The dev config registers the `secondbrain-dev://` scheme, so a dev build never claims production's `secondbrain://`; macOS cannot route deep links to `tauri dev`, so the checkout success page skips the hand-back for it.
 Build: `pnpm run build:desktop`.
 
 ## Test
@@ -136,11 +138,11 @@ Errors: single `AppError(String)` (`error.rs`).
   `tauri.conf.json` is pinned by `src/__tests__/csp.test.ts` — Tauri injects it only in packaged
   builds, `frame-src`/`media-src` must allow `asset:`, `http://asset.localhost` (Windows) and
   `https://asset.localhost`, and dev never exercises it.
-- `dashboard.rs` / `dashboard_query.rs` — HTML notes render through the separate `baalda-view`
+- `dashboard.rs` / `dashboard_query.rs` — HTML notes render through the separate `secondbrain-view`
   protocol with guest CSP and an opaque-origin iframe. Epoch-pinned, per-view leases allow the
   mounted HTML plus safe local presentation assets; private paths and symlink escapes are denied.
   The optional SDK uses a bounded, source-checked host bridge for reads, theme, state and navigation;
-  synced reads require a fresh server-readable listing. **Baalda renders; it never generates.**
+  synced reads require a fresh server-readable listing. **2ndBrain renders; it never generates.**
   Home/personal pins are device-local, shared Home/pins use `vault_appearance`; appearance PATCH
   and atomic pin toggles preserve concurrent fields. Installed Codex runs under a dedicated named
   permission profile; installed Claude uses restricted headless file tools with private-path denials, no shell or MCP tools, and saved CLI authentication. See `docs/DASHBOARDS.md` for API and boundaries.
@@ -163,7 +165,7 @@ Errors: single `AppError(String)` (`error.rs`).
   from an existence check rather than forwarded from `notify` (whose event kinds and rename pairing we
   deliberately ignore); a rename therefore arrives as an unpaired `removed` + `modified` in one batch.
 - `attachments.rs` — path-validated binary I/O under `attachments/`; never enters the note/CRDT pipeline.
-- `keychain.rs` — `keyring` crate, service `com.baalda.context`; trait-based so tests use a fake.
+- `keychain.rs` — `keyring` crate, service `com.artmotion.secondbrain`; trait-based so tests use a fake.
 
 Tauri events to the UI: **`vault-opened`** and **`files-changed`** (the only two).
 
@@ -505,7 +507,7 @@ explicit manual colour (files stay neutral unless coloured by hand). A broad pal
 within each ordered sibling group so the two preceding rows do not repeat; explicit synced colours
 always win and participate in that neighbour check. Automatic colours are stable across restarts and
 can be turned off in Account Settings → Appearance; they are ON by default (an explicit off is
-kept). The palette pairs baalda.com's pastel fills with a deeper outline of the same hue.
+kept). The palette pairs the brand's pastel fills with a deeper outline of the same hue.
 
 Vault Health tab removed 2026-10-04 (#289); vault-level sync state surfaces only through the sidebar
 badge, the reconcile banner / Activity review and file previews. `vaultSyncStatus` (vault channel) stays
@@ -526,7 +528,7 @@ identity bar. It polls `GET /health` (on server URL / user / vault change and ev
 only when the server ANSWERED and lacks a feature in `REQUIRED_SERVER_FEATURES` (`notes-with-state`)
 — keyed off `features`, never the version string; an old `{ ok: true }` counts as lacking all of
 them. Unreachable or unparseable ⇒ unknown ⇒ nothing (a flaky network never raises it). Copy depends
-on the host: the managed `api.baalda.com` says the server is being updated; any other server tells
+on the host: the managed `api.secondbrain.example` says the server is being updated; any other server tells
 the self-hoster to update it. Clicking opens Account Settings → About. The verdict is a store
 mirror (`backendStatus`) and never gates sync on its own; the sync layer reads the same cached
 feature set.
@@ -901,7 +903,7 @@ billing (managed/Polar only; self-hosters leave all unset ⇒ unlimited): `POLAR
 - **Intentional spec deviations** (documented in-code): `index.rs` uses a *self-contained* FTS5 table (not
   the spec's contentless one) because `snippet()` needs content; `SearchPanel` renders the Rust FTS snippet
   via `dangerouslySetInnerHTML`, relying on Rust emitting only sanitized `<mark>` tags.
-- Product identifier: `com.baalda.context`; Tauri `productName` is "Baalda".
+- Product identifier: `com.artmotion.secondbrain`; Tauri `productName` is "2ndBrain".
 - **Terminology — "vault" (the workspace→vault rename).** *Vault* is the single user-facing name for the
   unified entity (Local / Synced / Remote states). It maps to two internal things that are 1:1 in practice:
   (1) the **user-facing vault = the Better Auth `organization`** — its data key stays `organizationId`; only
@@ -936,20 +938,20 @@ overwriting occupied paths. Legacy whole-list Pro refusals can be re-probed on
 a sync pass after a one-minute cooldown, allowing a running updated desktop to
 recover when its server is upgraded.
 
-### Baalda Assistant engine
+### 2ndBrain Assistant engine
 
-AI’s Baalda Assistant provides user-reviewed agent repairs. `http/routes/housekeeper.ts` hosts the optional
+AI’s 2ndBrain Assistant provides user-reviewed agent repairs. `http/routes/housekeeper.ts` hosts the optional
 `app/apps/server/housekeeper/index.mjs` module (override with `HOUSEKEEPER_MODULE`) without a
 static build dependency. Every request checks vault membership and a non-deleted
 `pro` subscription in `active`/`past_due` on Cloud. Self-hosters with
-`BAALDA_DEPLOYMENT=self-hosted` have access. The Apache-2.0 module uses the server-side
+`SECONDBRAIN_DEPLOYMENT=self-hosted` have access. The Apache-2.0 module uses the server-side
 OpenRouter SDK through swappable Decisions/chat adapters. Personal provider keys live in the desktop OS keychain and are supplied per inference request; the server does not persist them. Candidate reads use per-note permissions and apply/undo use
 `DocWriter.editContent` with revision/span guards under its lock. Preview tokens
 are scoped to user/vault, expire, and live in bounded process memory. No sync wire
 format or bridge timing changes. Setup, limits and isolated tests:
-[Baalda Assistant](docs/HOUSEKEEPER.md). Keys are user-owned and stored in the desktop OS keychain; inference supplies them per request. Diagnostic review sends aggregate counts only and returns allowlisted next-step recommendations. Advanced diagnostic tools live in AI (the Health tab is gone).
+[2ndBrain Assistant](docs/HOUSEKEEPER.md). Keys are user-owned and stored in the desktop OS keychain; inference supplies them per request. Diagnostic review sends aggregate counts only and returns allowlisted next-step recommendations. Advanced diagnostic tools live in AI (the Health tab is gone).
 
-Baalda Agents follow observe → investigate → propose → approve → execute → verify.
+2ndBrain Agents follow observe → investigate → propose → approve → execute → verify.
 Finding cards are data-driven; models choose allowlisted capabilities, while
 existing permission-checked tools own changes. Link and filename changes require
 concrete previews. Never interpret generated text as executable tool authority.

@@ -1,13 +1,13 @@
 ---
 type: status-tracker
-product: Baalda
+product: 2ndBrain
 date: 2026-07-13
-tags: [baalda, status, roadmap]
+tags: [secondbrain, status, roadmap]
 ---
 
-# Baalda: Build Status
+# 2ndBrain: Build Status
 
-> Live checklist. Update as phases land. Back to index: [[Baalda]].
+> Live checklist. Update as phases land. Back to index: [[2ndBrain]].
 
 ## Where we are
 
@@ -18,7 +18,7 @@ tags: [baalda, status, roadmap]
 - **Deployment:** 🟢 Production-ready (2026-07-15). The sync WebSocket is served on the HTTP
   port at `/sync` (single-port topology), and the repo ships a Dockerfile, a Docker Compose bundle (`deploy/compose/`,
   migrations run before the server starts) and [[DEPLOY]]. The managed backend is live at
-  `https://api.baalda.com`; desktop releases ship via `v*` tags → signed installers → Tauri updater.
+  `https://api.secondbrain.example`; desktop releases ship via `v*` tags → signed installers → Tauri updater.
 - **Billing:** 🟢 Per-vault Pro via Polar, with the full subscription lifecycle (2026-09-09, #109–#111):
   deleting a vault cancels at period end before it deletes, subscriptions survive as tombstones, and an
   owner can transfer one between their vaults from Vault Settings → Billing.
@@ -74,7 +74,7 @@ De-risk the hardest part before networking.
 - [x] Hocuspocus server + Postgres; store binary Y.Doc only (`doc_updates` + `doc_snapshots`).
 - [x] Client network provider (`@hocuspocus/provider`) alongside local persistence (`lib/sync`).
 - [x] Better Auth: accounts, email+password (argon2id), server-side sessions; token in OS keychain
-  (Rust `keyring` crate, service `com.baalda.context`; `lib/auth` + `lib/api`).
+  (Rust `keyring` crate, service `com.artmotion.secondbrain`; `lib/auth` + `lib/api`).
 - [x] `users` / `sessions` / `vaults` / `notes` tables; join notes↔docs on `doc_id` (registry
   reconcile writes the server vault id + doc-id map to `.context/config.json`).
 - **Milestone:** two of my own devices converge on the same vault through the server. ✔ (proven by the
@@ -187,7 +187,7 @@ Six changes that together make a vault something a team can actually govern.
 - [x] **Account menu leads with Home.** The popover's top row was a second copy of the identity
   card that its own trigger already shows permanently in the sidebar footer. Home takes that row
   instead; it was previously below the fold on an account with several vaults.
-- [x] **Shareable note links.** `baalda://note/<vault>/<doc>` via `tauri-plugin-deep-link`
+- [x] **Shareable note links.** `secondbrain://note/<vault>/<doc>` via `tauri-plugin-deep-link`
   (+ single-instance, so a click on Windows/Linux doesn't spawn a second app). The link carries
   **identity, not access** — ids only, resolved against whoever opens it — and is keyed by `doc_id`,
   so it survives every rename and move.
@@ -230,16 +230,16 @@ Six changes that together make a vault something a team can actually govern.
   `no_account` / `send_failed` with the provider's reason, so a wrong-server address or a refused
   send is said out loud) → emailed single-use, 1-hour link to the server-rendered `/reset-password`
   page → Better Auth `reset-password` (revokes other sessions; creates the credential for a
-  Google-only account, so the same flow sets a first password) → `baalda://signin` bounces back into
+  Google-only account, so the same flow sets a first password) → `secondbrain://signin` bounces back into
   the app, which notices its revoked session and opens the sign-in card. Admin escape hatch for
   servers without email: `pnpm run set-password -- <email>`.
 - [x] **Sign-up verification email** (soft): sent on sign-up, `emailVerified` set on click, lands on
-  `/email-verified` → `baalda://verified` → the app re-reads its session; Account settings shows
+  `/email-verified` → `secondbrain://verified` → the app re-reads its session; Account settings shows
   "Email confirmed ✓" / a Resend button. Not yet required to sign in — pre-existing accounts were
   never verified.
 - [x] **Invitation emails** → `POST /api/invitations/:id/send` (explicit, reports sent/failed; not a
   Better Auth hook, which swallows send errors) → `/invite/:id` landing page →
-  `baalda://invite/<id>?server=` deep link → the app signs in/up with the invited address and
+  `secondbrain://invite/<id>?server=` deep link → the app signs in/up with the invited address and
   accepts. Members shows "Invitation emailed" only on a confirmed send, the provider's error + the
   link otherwise, plus Copy-link + Revoke per pending invitation. Re-inviting re-sends.
 - [x] **Invite inbox actually works**: Better Auth's `list-user-invitations` 403s for any unverified
@@ -314,7 +314,7 @@ capacity checks. The sync banner links to the upgrade page with updated benefits
 Sign-in uses a body portal. The sidebar alone says AI (Beta), with an accented
 sparkle; provider settings use a warm amber card and a key-ready indicator.
 
-Deployment access policy is now independent of billing. `BAALDA_DEPLOYMENT=self-hosted`
+Deployment access policy is now independent of billing. `SECONDBRAIN_DEPLOYMENT=self-hosted`
 keeps the Assistant available when operator billing is enabled, disabled, or configured
 later. `cloud` (the fail-closed default) requires Pro even without payment
 credentials and enforces the Free note cap. Self-hosting `.env.example` opts in

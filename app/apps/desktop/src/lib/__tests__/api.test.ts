@@ -42,8 +42,8 @@ describe("ApiClient against a mocked fetch", () => {
     const bytes = compressed ? gzipSync(page) : page;
     const api = new ApiClient({ baseUrl: "http://localhost:3010", fetchImpl: async () =>
       new Response(new Uint8Array(bytes), { headers: {
-        "content-type": "application/vnd.baalda.bootstrap",
-        "x-baalda-cursor": "1", "x-baalda-docs": "1",
+        "content-type": "application/vnd.secondbrain.bootstrap",
+        "x-secondbrain-cursor": "1", "x-secondbrain-docs": "1",
       } }),
     });
     const result = await api.fetchBootstrapPage("v1", "s1");
@@ -468,7 +468,7 @@ describe("ApiClient tree-binary routes", () => {
  * one is a de-facto sign-out (the session lives under a per-server keychain
  * key). So a wrong address has to come back as a wrong address: these cases pin
  * that a 200 from something-that-isn't-us is a failure, and that "unreachable"
- * stays distinguishable from "reachable but not Baalda" — the two send the user
+ * stays distinguishable from "reachable but not 2ndBrain" — the two send the user
  * to completely different places.
  */
 describe("ApiClient.health", () => {
@@ -495,10 +495,10 @@ describe("ApiClient.health", () => {
       token: "t",
       fetchImpl: rawFetch(200, JSON.stringify({ ok: true }), seen),
     });
-    await expect(api.health("https://notes.example.com/baalda/")).resolves.toBeUndefined();
+    await expect(api.health("https://notes.example.com/secondbrain/")).resolves.toBeUndefined();
     // The candidate URL, not the client's current base — and no session token,
     // because the point is to test the address.
-    expect(seen.url).toBe("https://notes.example.com/baalda/health");
+    expect(seen.url).toBe("https://notes.example.com/secondbrain/health");
     expect(seen.auth).toBeUndefined();
     // Probing must not repoint the client.
     expect(api.getBaseUrl()).toBe("http://localhost:3010");
@@ -514,12 +514,12 @@ describe("ApiClient.health", () => {
     expect(seen.url).toBe("http://localhost:3010/health");
   });
 
-  it("rejects a 200 that isn't a Baalda health body", async () => {
+  it("rejects a 200 that isn't a 2ndBrain health body", async () => {
     for (const body of ["<!doctype html><h1>nginx</h1>", "", JSON.stringify({ ok: false }), '"ok"']) {
       const api = new ApiClient({ fetchImpl: rawFetch(200, body) });
       await expect(api.health("https://notes.example.com")).rejects.toMatchObject({
         name: "ServerCheckError",
-        kind: "not-baalda",
+        kind: "not-secondbrain",
       });
     }
   });
@@ -527,7 +527,7 @@ describe("ApiClient.health", () => {
   it("calls a 404 the wrong app and a 500 an unreachable server", async () => {
     const notUs = new ApiClient({ fetchImpl: rawFetch(404, "Not Found") });
     await expect(notUs.health("https://notes.example.com")).rejects.toMatchObject({
-      kind: "not-baalda",
+      kind: "not-secondbrain",
     });
 
     const down = new ApiClient({ fetchImpl: rawFetch(502, "Bad Gateway") });

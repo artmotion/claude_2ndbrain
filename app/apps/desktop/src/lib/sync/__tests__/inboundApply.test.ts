@@ -536,7 +536,7 @@ describe("inbound delete", () => {
     const disk = new FakeDisk();
     install(disk);
     const state: ServerState = {
-      notes: [{ id: "srv-1", rel_path: "naveed-test.md" }],
+      notes: [{ id: "srv-1", rel_path: "sample-test.md" }],
       tombstones: [],
     };
     const api = fakeApi(state);
@@ -544,7 +544,7 @@ describe("inbound delete", () => {
     reg.setInboundHost(recordingHost().host);
     await reg.reconcile({ organizationId: ORG, vaultName: "v" });
     // The premise: materialized under an identity of its own.
-    expect(disk.notes.get("naveed-test.md")).toBe("local-naveed-test.md");
+    expect(disk.notes.get("sample-test.md")).toBe("local-sample-test.md");
 
     // Hand the baseline back the way the next pass reads it, then delete the note
     // server-side — same app session, so the registry still holds the join.
@@ -557,8 +557,8 @@ describe("inbound delete", () => {
     await reg.reconcile({ organizationId: ORG, vaultName: "v" });
 
     expect(disk.trashed).toEqual([]);
-    expect(disk.deleted).toEqual(["naveed-test.md"]);
-    expect(disk.notes.has("naveed-test.md")).toBe(false);
+    expect(disk.deleted).toEqual(["sample-test.md"]);
+    expect(disk.notes.has("sample-test.md")).toBe(false);
     expect(vi.mocked(api.createNote)).not.toHaveBeenCalled();
   });
 
@@ -570,13 +570,13 @@ describe("inbound delete", () => {
     const disk = new FakeDisk();
     const r = await twoPasses({
       disk,
-      first: { notes: [{ id: "srv-1", rel_path: "naveed-test.md" }] },
+      first: { notes: [{ id: "srv-1", rel_path: "sample-test.md" }] },
       then: { notes: [], tombstones: ["srv-1"] },
     });
 
     expect(disk.trashed).toEqual([]);
-    expect(disk.deleted).toEqual(["naveed-test.md"]);
-    expect(disk.notes.has("naveed-test.md")).toBe(false);
+    expect(disk.deleted).toEqual(["sample-test.md"]);
+    expect(disk.notes.has("sample-test.md")).toBe(false);
     expect(vi.mocked(r.api.createNote)).not.toHaveBeenCalled();
   });
 

@@ -1,15 +1,19 @@
-Baalda
-Copyright 2026 Baalda and the Baalda contributors
+2ndBrain
+Copyright 2026 artmotion
 
-This product includes software developed by the Baalda project
-and its contributors.
+This product is a modified version of Baalda
+(https://github.com/naveedharri/baalda), which is:
+
+    Copyright 2026 Baalda and the Baalda contributors
+    Licensed under the Apache License, Version 2.0.
+
+2ndBrain is an independent fork. It is not affiliated with or endorsed by
+the Baalda project, and it does not use the Baalda name or logo as its own.
+Files have been modified from the original; see the git history of this
+repository for the changes.
 
 Licensed under the Apache License, Version 2.0. See the LICENSE file
 for the full license text.
-
-"Baalda" and "Context" (as used to identify this project) are
-trademarks of the Baalda project. The Apache License does not grant
-permission to use these marks. See TRADEMARK.md for the trademark policy.
 
 --------------------------------------------------------------------------
 This software depends on third-party open-source components, each

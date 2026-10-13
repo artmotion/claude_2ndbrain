@@ -26,7 +26,7 @@
  */
 
 export const DEFAULT_RELEASE_MANIFEST_URL =
-  "https://github.com/naveedharri/baalda/releases/latest/download/latest.json";
+  "https://github.com/artmotion/claude_baalda/releases/latest/download/latest.json";
 
 const FETCH_TIMEOUT_MS = 15_000;
 

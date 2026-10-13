@@ -6,10 +6,10 @@
 //  live doc writer, so open editors merge them like any other edit. Writing the
 //  CRDT store from a second process would bypass them.
 //
-//    BAALDA_URL=https://api.example.com BAALDA_TOKEN=<owner/admin session token> \
+//    SECONDBRAIN_URL=https://api.example.com SECONDBRAIN_TOKEN=<owner/admin session token> \
 //      pnpm run recover:notes -- list  <vaultId> > review.csv
 //    # edit the `apply` column: yes = restore that version, anything else = skip
-//    BAALDA_URL=… BAALDA_TOKEN=… pnpm run recover:notes -- apply <vaultId> review.csv
+//    SECONDBRAIN_URL=… SECONDBRAIN_TOKEN=… pnpm run recover:notes -- apply <vaultId> review.csv
 //
 //  `list` prefills `apply=yes` only where the proposed version holds everything
 //  the note holds now. Every restore records a "Before revert" version first,
@@ -59,9 +59,9 @@ export function parseCsv(text: string): string[][] {
 
 async function main(): Promise<void> {
   const [cmd, vaultId, file] = process.argv.slice(2).filter((a) => a !== "--");
-  const base = process.env.BAALDA_URL?.replace(/\/+$/, "");
-  const token = process.env.BAALDA_TOKEN;
-  if (!base || !token) usage("set BAALDA_URL and BAALDA_TOKEN");
+  const base = process.env.SECONDBRAIN_URL?.replace(/\/+$/, "");
+  const token = process.env.SECONDBRAIN_TOKEN;
+  if (!base || !token) usage("set SECONDBRAIN_URL and SECONDBRAIN_TOKEN");
   if (!vaultId) usage("vaultId required");
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const url = `${base}/api/vaults/${encodeURIComponent(vaultId)}/recovery`;

@@ -15,7 +15,7 @@ function input(over: Partial<HealthInput> = {}): HealthInput {
     openFolderIsSynced: true,
     syncProgress: null,
     lastSyncedAt: NOW - 120_000,
-    serverUrl: "https://api.baalda.com",
+    serverUrl: "https://api.secondbrain.example",
     now: NOW,
     docIdByPath: {},
     docSyncState: {},

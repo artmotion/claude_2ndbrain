@@ -1,14 +1,14 @@
 ---
 type: reference
-product: Baalda
+product: 2ndBrain
 date: 2026-08-07
-tags: [baalda, design, ux, interactions]
+tags: [secondbrain, design, ux, interactions]
 ---
 
 # Interaction inventory & feedback rules
 
 > Every action the desktop app can take, how long it takes, and what it shows
-> while it does. Back to index: [[Baalda]].
+> while it does. Back to index: [[2ndBrain]].
 
 Two things live here: the **rules** (how any asynchronous action reports for
 itself) and the **inventory** (every action, audited against those rules). If you

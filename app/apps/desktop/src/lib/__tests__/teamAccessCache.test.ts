@@ -17,7 +17,7 @@ function fakeStore(seed: Record<string, string> = {}): ModeStore & { data: Recor
   };
 }
 
-const SERVER = "https://api.baalda.com";
+const SERVER = "https://api.secondbrain.example";
 const ORG = "org_abc";
 
 describe("teamAccessCacheKey", () => {

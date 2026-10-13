@@ -1,11 +1,10 @@
-# Deploying the Baalda server
+# Deploying the 2ndBrain server
 
 The server (`app/apps/server`) is a self-hostable Node + Postgres service: a Hono
 HTTP API and the Hocuspocus sync WebSocket, both served on a single public port.
 This guide covers running it with plain Docker (or Docker Compose) and Coolify.
 Everything here is optional. The desktop app works fully offline with no server
-at all, and you can always use the managed backend from [baalda.com](https://baalda.com)
-instead of self-hosting: set the server URL in Settings to `https://api.baalda.com`.
+at all; a server adds multi-device sync and real-time collaboration.
 
 ## Ports
 
@@ -31,7 +30,7 @@ a pnpm monorepo and needs the workspace root's `package.json` /
 ### Build
 
 ```bash
-docker build -f app/apps/server/Dockerfile -t baalda-server .
+docker build -f app/apps/server/Dockerfile -t secondbrain-server .
 ```
 
 ### Run
@@ -41,7 +40,7 @@ docker run -p 3010:3010 \
   -e DATABASE_URL=postgres://context:context@your-postgres-host:5432/context \
   -e JWT_SECRET="$(openssl rand -base64 32)" \
   -e BETTER_AUTH_URL=https://your-domain.example \
-  baalda-server
+  secondbrain-server
 ```
 
 Run migrations once before (or on) first boot:
@@ -50,7 +49,7 @@ Run migrations once before (or on) first boot:
 docker run --rm \
   -e DATABASE_URL=postgres://context:context@your-postgres-host:5432/context \
   -e JWT_SECRET="$(openssl rand -base64 32)" \
-  baalda-server node dist/db/migrate.js
+  secondbrain-server node dist/db/migrate.js
 ```
 
 Migrations are idempotent (tracked in a `_migrations` table), so re-running
@@ -70,7 +69,7 @@ services:
       POSTGRES_PASSWORD: context
       POSTGRES_DB: context
     volumes:
-      - baalda-postgres:/var/lib/postgresql/data
+      - secondbrain-postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U context"]
       interval: 5s
@@ -104,7 +103,7 @@ services:
         condition: service_completed_successfully
 
 volumes:
-  baalda-postgres:
+  secondbrain-postgres:
 ```
 
 Generate a real `JWT_SECRET` for anything beyond local testing:
@@ -177,7 +176,7 @@ The desktop side picks it up at **build** time rather than at runtime. The
 frontend's `DEFAULT_SERVER_URL` (`app/apps/desktop/src/lib/api.ts`) honours a
 `VITE_SERVER_URL` inlined by Vite, and `.github/workflows/staging-release.yml`
 sets that from a repo Actions variable named `STAGING_SERVER_URL`, so the
-**Baalda Staging** app it publishes defaults to your staging instance with nothing
+**2ndBrain Staging** app it publishes defaults to your staging instance with nothing
 for the tester to configure. See `docs/RELEASE.md` → *Staging*.
 
 Two consequences worth stating plainly:
@@ -239,7 +238,7 @@ confirm `/health` and a real sync round-trip, then promote.
 | `MAX_BLOB_BYTES` | no | `26214400` | Hard ceiling for one attachment on the Postgres provider, in bytes (25 MB). A heap bound, not a taste one — that provider buffers the whole value, ~3.7x, in a 512 MB heap. Raise it only alongside the container's memory. |
 | `MAX_INFLIGHT_UPLOAD_BYTES` | no | `2 × MAX_BLOB_BYTES` | Total upload-body bytes admitted at once. Beyond it uploads queue, then shed with 503. Never lower than `MAX_BLOB_BYTES`. |
 | `MAX_BLOB_BYTES_DIRECT` | no | `524288000` | Ceiling for one attachment on S3 (500 MB). A product decision, not a heap bound: the bytes never enter this process. Per-category caps still apply. |
-| `BLOB_MIME_ENFORCE` | no | `reject` | `reject` answers 415 for a Content-Type Baalda does not know; `warn` logs and stores it. Use `warn` first on an existing server to see what enforcement would refuse. |
+| `BLOB_MIME_ENFORCE` | no | `reject` | `reject` answers 415 for a Content-Type 2ndBrain does not know; `warn` logs and stores it. Use `warn` first on an existing server to see what enforcement would refuse. |
 | `BLOB_PENDING_TTL_MINUTES` | no | `60` | How long an abandoned upload holds its content's dedupe slot before the sweep removes it. Always on, every 15 minutes, serialized across instances by an advisory lock. |
 | `FREE_MAX_STORAGE_MB` | no | `1024` | Per-vault model only (the Team model uses `ABUSE_MAX_STORAGE_MB`). Free-tier attachment storage per unsubscribed vault (only enforced when billing is enabled; a vault with an active subscription is unlimited). Over it, `intent` answers 402 `storage_limit_reached`. Lowering it never deletes anything. |
 
@@ -271,8 +270,8 @@ data can still be cleaned up. Billing-disabled self-hosts remain unlimited.
 | `S3_CHECKSUM_MODE` | no | `auto` | `auto` \| `sha256` \| `md5` \| `none`. `auto` = sha256 on real AWS, md5 against any custom endpoint (R2 implements only `Content-MD5`). |
 | `S3_MULTIPART_THRESHOLD_BYTES` | no | `104857600` | Where a single PUT becomes a presigned multipart upload (100 MB, AWS's own threshold). |
 | `S3_MULTIPART_PART_BYTES` | no | `16777216` | Bytes per multipart part (16 MB). Raised automatically if an object would need more than 10 000 parts. |
-| `DEEP_LINK_SCHEME` | no | `baalda` | URL scheme of the desktop app the server's pages bounce into. Set `baalda-staging` on the server behind the Staging app so production and staging links open the right app on a machine that has both. |
-| `EMAIL_FROM` | for email | unset | **Outbound email (optional).** Sender address, e.g. `Baalda <no-reply@example.com>`. With this and ONE transport below, password reset ("Forgot password?"), sign-up verification and invitation emails switch on. Unset ⇒ email off and none of those is offered (invitations are shared as a link instead). |
+| `DEEP_LINK_SCHEME` | no | `secondbrain` | URL scheme of the desktop app the server's pages bounce into. Set `secondbrain-staging` on the server behind the Staging app so production and staging links open the right app on a machine that has both. |
+| `EMAIL_FROM` | for email | unset | **Outbound email (optional).** Sender address, e.g. `2ndBrain <no-reply@example.com>`. With this and ONE transport below, password reset ("Forgot password?"), sign-up verification and invitation emails switch on. Unset ⇒ email off and none of those is offered (invitations are shared as a link instead). |
 | `SMTP_URL` | one transport | unset | Any SMTP server: `smtp://user:pass@host:587` (STARTTLS) or `smtps://user:pass@host:465` (TLS). |
 | `RESEND_API_KEY` | one transport | unset | [Resend](https://resend.com) API key — the HTTPS alternative to SMTP. |
 | `EMAIL_TRANSPORT` | no | inferred | Force `smtp` \| `resend` \| `log` \| `memory` instead of inferring from the credential set. `log` prints emails to stdout (local dev); `memory` is the test suite's; both are refused in production. |
@@ -357,7 +356,7 @@ The Compose bundle ships a MinIO service behind a profile, so nothing about
 ```bash
 docker compose --profile minio up -d minio
 docker compose exec minio mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-docker compose exec minio mc mb local/baalda
+docker compose exec minio mc mb local/secondbrain
 ```
 
 Then uncomment the `S3_*` block in `x-server-env` and restart the server. Read
@@ -565,7 +564,7 @@ on that server's session, or signed out if it has none.
 https://<your-server>/open/connect
 ```
 
-which is clickable in chat (a bare `baalda://` scheme is not) and bounces into
+which is clickable in chat (a bare `secondbrain://` scheme is not) and bounces into
 the app, where it asks the person to confirm before connecting. Nothing is
 applied without that click: the link decides where a password gets posted, so it
 is treated as untrusted input. Behind a reverse proxy with a path prefix, send
@@ -642,7 +641,7 @@ unset and the server behaves exactly as before (Postgres only).
 
 ### Self-hosted agent access
 
-Set `BAALDA_DEPLOYMENT=self-hosted` (as in `.env.example`) to enable the Assistant with
+Set `SECONDBRAIN_DEPLOYMENT=self-hosted` (as in `.env.example`) to enable the Assistant with
 users’ own model keys, independently of optional billing setup. You can configure
 billing later without changing AI access. The setting defaults to `cloud` when
 omitted: AI requires a paid plan (Pro, or Team under `BILLING_MODEL=team`). Free vaults

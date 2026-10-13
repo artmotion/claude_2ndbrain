@@ -1,12 +1,12 @@
-// The two data-less `baalda://` links the server's account pages bounce into
-// (routes/account-pages.ts): `baalda://verified` after the email-confirmation
-// link is clicked, and `baalda://signin` after a password was reset in the
+// The two data-less `secondbrain://` links the server's account pages bounce into
+// (routes/account-pages.ts): `secondbrain://verified` after the email-confirmation
+// link is clicked, and `secondbrain://signin` after a password was reset in the
 // browser. Neither carries an id or a token — they only say "come back and look
 // again": the app re-reads its session, so the verified state (or the revoked
 // one) shows up without anyone reloading anything.
 //
 // Both foldings are accepted, like every other link parser here: some platforms
-// deliver `baalda://verified` with host "verified", others `baalda:///verified`
+// deliver `secondbrain://verified` with host "verified", others `secondbrain:///verified`
 // with it in the path.
 
 import { isAppProtocol } from "./deepLinkScheme";

@@ -1,4 +1,4 @@
-# Self-host the Baalda server with Docker Compose
+# Self-host the 2ndBrain server with Docker Compose
 
 One command, one machine you control, no vendor account.
 
@@ -59,14 +59,14 @@ docker compose ps                    # health
 docker compose pull && docker compose up -d --build   # upgrade
 ```
 
-**Back up the volume.** `baalda_pgdata` holds every note's CRDT history — the
+**Back up the volume.** `secondbrain_pgdata` holds every note's CRDT history — the
 server's copy of your team's writing. Note that each desktop client also keeps
 its own `.md` files on disk, so a total server loss is recoverable from any
 client's vault; the volume is what makes *new* devices and *late* teammates able
 to catch up.
 
 ```bash
-docker compose exec -T postgres pg_dump -U baalda baalda | gzip > baalda-$(date +%F).sql.gz
+docker compose exec -T postgres pg_dump -U secondbrain secondbrain | gzip > secondbrain-$(date +%F).sql.gz
 ```
 
 ⚠️ `docker compose down -v` deletes that volume. `down` without `-v` does not.

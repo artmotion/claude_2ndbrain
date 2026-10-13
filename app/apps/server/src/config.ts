@@ -56,9 +56,9 @@ function int(name: string, fallback: number): number {
 
 /** `DEEP_LINK_SCHEME`, validated to the shape a URL scheme may take. */
 function deepLinkScheme(): string {
-  const v = optional("DEEP_LINK_SCHEME") ?? "baalda";
+  const v = optional("DEEP_LINK_SCHEME") ?? "secondbrain";
   if (!/^[a-z][a-z0-9+.-]{0,63}$/.test(v)) {
-    throw new Error(`DEEP_LINK_SCHEME must be a URL scheme like "baalda" (got "${v}")`);
+    throw new Error(`DEEP_LINK_SCHEME must be a URL scheme like "secondbrain" (got "${v}")`);
   }
   return v;
 }
@@ -155,13 +155,13 @@ export const config = {
   /**
    * URL scheme of the desktop app this server's pages bounce into (`/open/*`,
    * `/invite/:id`, `/email-verified`, `/reset-password`). The released app
-   * registers `baalda`; the Staging app registers `baalda-staging`, so a staging
-   * server must say so or its links open whichever app grabbed `baalda://` last
+   * registers `secondbrain`; the Staging app registers `secondbrain-staging`, so a staging
+   * server must say so or its links open whichever app grabbed `secondbrain://` last
    * on a machine that has both installed.
    */
   deepLinkScheme: deepLinkScheme(),
   // ---- Outbound email (issue #99) ----
-  /** Sender address, e.g. `Baalda <no-reply@example.com>`. Required to send
+  /** Sender address, e.g. `2ndBrain <no-reply@example.com>`. Required to send
    *  anything; with it and ONE transport below, password reset + sign-up
    *  verification + invitation emails switch on. Unset ⇒ email off, and every
    *  feature that needs it is simply not offered. Resolution + validation live

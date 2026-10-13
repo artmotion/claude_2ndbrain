@@ -1,16 +1,16 @@
 ---
 type: spec
 spec: 02-database-architecture
-product: Baalda
+product: 2ndBrain
 status: draft-v1
 date: 2026-07-13
-tags: [baalda, spec, database, sqlite, postgres, storage]
+tags: [secondbrain, spec, database, sqlite, postgres, storage]
 ---
 
 # 02 · Database Architecture
 
 Where data lives — on each client and on the server — and why nothing that matters lives *only* in a
-database. Overview: [[00-architecture-overview]]. Bridge detail: [[03-sync-engine]]. Index: [[Baalda]].
+database. Overview: [[00-architecture-overview]]. Bridge detail: [[03-sync-engine]]. Index: [[2ndBrain]].
 
 ---
 

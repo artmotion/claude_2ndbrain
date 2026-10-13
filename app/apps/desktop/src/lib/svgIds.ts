@@ -4,7 +4,7 @@
  * references resolve across the HTML document, so DiceBear's shared mask IDs
  * can otherwise bind a large character to a small vault-icon mask. */
 export function scopeSvgIds(svg: string, instance: string): string {
-  const prefix = `baalda-svg-${instance.replace(/[^A-Za-z0-9_-]/g, "")}--`;
+  const prefix = `secondbrain-svg-${instance.replace(/[^A-Za-z0-9_-]/g, "")}--`;
   const ids = new Map<string, string>();
   for (const match of svg.matchAll(/\bid="([^"]+)"/g)) {
     ids.set(match[1], prefix + match[1]);

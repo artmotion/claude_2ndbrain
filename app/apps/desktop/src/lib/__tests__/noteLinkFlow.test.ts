@@ -13,22 +13,22 @@ describe("pending note-link queue", () => {
   beforeEach(() => clearPendingNoteLink());
 
   it("take returns the queued link once and clears it", () => {
-    queueNoteLink("baalda://note/o/d");
+    queueNoteLink("secondbrain://note/o/d");
     expect(hasPendingNoteLink()).toBe(true);
-    expect(takePendingNoteLink()).toBe("baalda://note/o/d");
+    expect(takePendingNoteLink()).toBe("secondbrain://note/o/d");
     expect(takePendingNoteLink()).toBeNull();
     expect(hasPendingNoteLink()).toBe(false);
   });
 
   it("keeps only the LATEST link — the second click supersedes the first", () => {
-    queueNoteLink("baalda://note/o/first");
-    queueNoteLink("baalda://note/o/second");
-    expect(takePendingNoteLink()).toBe("baalda://note/o/second");
+    queueNoteLink("secondbrain://note/o/first");
+    queueNoteLink("secondbrain://note/o/second");
+    expect(takePendingNoteLink()).toBe("secondbrain://note/o/second");
   });
 
   it("peek reads without consuming; clear empties", () => {
-    queueNoteLink("baalda://note/o/d");
-    expect(peekPendingNoteLink()).toBe("baalda://note/o/d");
+    queueNoteLink("secondbrain://note/o/d");
+    expect(peekPendingNoteLink()).toBe("secondbrain://note/o/d");
     expect(hasPendingNoteLink()).toBe(true);
     clearPendingNoteLink();
     expect(peekPendingNoteLink()).toBeNull();

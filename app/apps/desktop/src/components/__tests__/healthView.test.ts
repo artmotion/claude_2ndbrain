@@ -309,9 +309,9 @@ describe("HealthView", () => {
           ...localReport,
           verdict: "healthy",
           headline: "All 12 notes are on the Remote Vault",
-          detail: "Last confirmed 2 minutes ago · api.baalda.com.",
+          detail: "Last confirmed 2 minutes ago · api.secondbrain.example.",
           counts: { total: 12, synced: 12, pending: 0, failed: 0, unsynced: 0, unreported: 0 },
-          serverHost: "api.baalda.com",
+          serverHost: "api.secondbrain.example",
         },
       }),
       { title: "Health" },
@@ -372,7 +372,7 @@ describe("HealthView", () => {
             unsynced: 2,
             unreported: 0,
           },
-          serverHost: "api.baalda.com",
+          serverHost: "api.secondbrain.example",
         },
         inventory: {
           local: { notes: 12, folders: 3, files: 4, total: 19 },
@@ -438,7 +438,7 @@ describe("HealthView", () => {
             unsynced: 0,
             unreported: 0,
           },
-          serverHost: "api.baalda.com",
+          serverHost: "api.secondbrain.example",
         },
         stats: {
           ...stats,
@@ -500,7 +500,7 @@ describe("HealthView", () => {
     expect(html).toContain("The current Remote Vault contents cannot be confirmed");
     expect(html).toContain("last-known comparison may be out of date");
     expect(html).not.toContain("Notes and folders match");
-    expect(html).not.toContain("items Baalda can list");
+    expect(html).not.toContain("items 2ndBrain can list");
   });
 
   const busyInventory = () => ({
@@ -574,7 +574,7 @@ describe("HealthView", () => {
             unsynced: 1,
             unreported: 0,
           },
-          serverHost: "api.baalda.com",
+          serverHost: "api.secondbrain.example",
           issues: [
             {
               key: "doc-1",
@@ -792,7 +792,7 @@ describe("HealthIssues", () => {
       expect(html).not.toContain("aria-expanded");
       expect(html).not.toContain("health-issue-panel");
       expect(html).not.toContain("What this means");
-      expect(html).not.toContain("What Baalda does next");
+      expect(html).not.toContain("What 2ndBrain does next");
       expect(html).not.toContain("Where your content is");
       expect(html).not.toContain("Copy Doc id");
       expect(html).not.toContain("Needs you");

@@ -1,6 +1,6 @@
 # Demo harness — big team vault + live multiplayer
 
-A named, committed harness for **demoing / screen-recording** Baalda at scale. It
+A named, committed harness for **demoing / screen-recording** 2ndBrain at scale. It
 builds a large, realistic team vault and then drives live multiplayer
 activity so you can film presence circles + moving remote cursors across a busy
 vault.

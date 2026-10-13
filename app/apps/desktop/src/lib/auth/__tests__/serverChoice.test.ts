@@ -23,10 +23,10 @@ describe("normalizeServerUrl", () => {
   });
 
   it("strips trailing slashes but keeps a reverse-proxy path prefix", () => {
-    expect(normalizeServerUrl("https://intranet.example.com/baalda/")).toBe(
-      "https://intranet.example.com/baalda",
+    expect(normalizeServerUrl("https://intranet.example.com/secondbrain/")).toBe(
+      "https://intranet.example.com/secondbrain",
     );
-    expect(normalizeServerUrl("https://api.baalda.com///")).toBe("https://api.baalda.com");
+    expect(normalizeServerUrl("https://api.secondbrain.example///")).toBe("https://api.secondbrain.example");
   });
 
   it("keeps an explicit port and honours http for a local server", () => {
@@ -63,10 +63,10 @@ describe("normalizeServerUrl", () => {
 
 describe("serverHost", () => {
   it("names the host, with any path prefix that distinguishes two instances", () => {
-    expect(serverHost("https://api.baalda.com")).toBe("api.baalda.com");
+    expect(serverHost("https://api.secondbrain.example")).toBe("api.secondbrain.example");
     expect(serverHost("http://localhost:3010")).toBe("localhost:3010");
-    expect(serverHost("https://intranet.example.com/baalda")).toBe(
-      "intranet.example.com/baalda",
+    expect(serverHost("https://intranet.example.com/secondbrain")).toBe(
+      "intranet.example.com/secondbrain",
     );
   });
 
@@ -76,7 +76,7 @@ describe("serverHost", () => {
 });
 
 describe("impliedServerChoice", () => {
-  const def = "https://api.baalda.com";
+  const def = "https://api.secondbrain.example";
 
   it("reads a non-default URL as a self-host answer already given", () => {
     expect(impliedServerChoice("https://notes.example.com", def)).toBe("custom");
@@ -84,12 +84,12 @@ describe("impliedServerChoice", () => {
 
   it("treats the default (however it was spelled) as no answer", () => {
     expect(impliedServerChoice(def, def)).toBeNull();
-    expect(impliedServerChoice("https://api.baalda.com/", def)).toBeNull();
+    expect(impliedServerChoice("https://api.secondbrain.example/", def)).toBeNull();
   });
 });
 
 describe("decideAuthStep", () => {
-  const def = "https://api.baalda.com";
+  const def = "https://api.secondbrain.example";
 
   it("opens a first run on the form, on the managed default (#305)", () => {
     expect(

@@ -18,8 +18,8 @@ use tauri::{
 /// Parent scripts remain restricted to 'self'; only the isolated document gets
 /// the script allowance. Fetch, nested frames, forms and remote image beacons
 /// cannot leave the document through this policy.
-pub const DASHBOARD_CSP: &str = "default-src 'none'; script-src 'self' baalda-view: http://baalda-view.localhost https://baalda-view.localhost 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' baalda-view: http://baalda-view.localhost https://baalda-view.localhost 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' baalda-view: http://baalda-view.localhost https://baalda-view.localhost data: blob:; media-src 'self' baalda-view: http://baalda-view.localhost https://baalda-view.localhost data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox";
-const ASSET_CSP: &str = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'self' baalda-view: http://baalda-view.localhost https://baalda-view.localhost data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox";
+pub const DASHBOARD_CSP: &str = "default-src 'none'; script-src 'self' secondbrain-view: http://secondbrain-view.localhost https://secondbrain-view.localhost 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' secondbrain-view: http://secondbrain-view.localhost https://secondbrain-view.localhost 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' secondbrain-view: http://secondbrain-view.localhost https://secondbrain-view.localhost data: blob:; media-src 'self' secondbrain-view: http://secondbrain-view.localhost https://secondbrain-view.localhost data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox";
+const ASSET_CSP: &str = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'self' secondbrain-view: http://secondbrain-view.localhost https://secondbrain-view.localhost data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; sandbox";
 const MAX_RESOURCE_BYTES: u64 = 10 * 1024 * 1024;
 const SDK: &[u8] = include_bytes!("../../src/lib/dashboard/sdk.js");
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
@@ -53,7 +53,7 @@ pub fn handle_request<R: tauri::Runtime>(
     tauri::async_runtime::spawn_blocking(move || {
         let _slot = RequestSlot;
         let state = app.state::<AppState>();
-        let result = if let Some(id) = request.uri().path().strip_prefix("/__baalda/template/") {
+        let result = if let Some(id) = request.uri().path().strip_prefix("/__secondbrain/template/") {
             serve_template(&app, id, request.method().as_str())
         } else { serve(&state, &request) };
         responder.respond(result.unwrap_or_else(|_| {
@@ -118,7 +118,7 @@ fn serve(state: &AppState, request: &Request<Vec<u8>>) -> AppResult<Response<Vec
         return Err(AppError::new("view query too long"));
     }
     let path = decode_path(request.uri().path())?;
-    if path == "/__baalda/sdk.js" {
+    if path == "/__secondbrain/sdk.js" {
         return Ok(response(
             StatusCode::OK,
             "application/javascript; charset=utf-8",
@@ -164,8 +164,8 @@ fn serve(state: &AppState, request: &Request<Vec<u8>>) -> AppResult<Response<Vec
     let mut body = read_resource(&file)?;
     if is_html(rel) {
         if let Ok(html) = std::str::from_utf8(&body) {
-            if html.contains("baalda-template-credit") {
-                body = html.replacen("</head>", "<style>.baalda-template-credit{display:none!important}</style></head>", 1).into_bytes();
+            if html.contains("secondbrain-template-credit") {
+                body = html.replacen("</head>", "<style>.secondbrain-template-credit{display:none!important}</style></head>", 1).into_bytes();
             }
         }
     }
@@ -188,12 +188,12 @@ fn serve(state: &AppState, request: &Request<Vec<u8>>) -> AppResult<Response<Vec
 
 // Keep existing saved templates comfortable without rewriting the user's file.
 fn template_spacing(html: &str) -> String {
-    if !html.contains("name=\"baalda-template\"") {
+    if !html.contains("name=\"secondbrain-template\"") {
         return html.to_owned();
     }
     let css = include_str!("../../public/dashboard-template-spacing.css");
-    let style = format!("<style id=\"baalda-template-spacing\">{css}</style>");
-    if let Some(start) = html.find("<style id=\"baalda-template-spacing\">") {
+    let style = format!("<style id=\"secondbrain-template-spacing\">{css}</style>");
+    if let Some(start) = html.find("<style id=\"secondbrain-template-spacing\">") {
         if let Some(end) = html[start..].find("</style>") {
             return format!("{}{}{}", &html[..start], style, &html[start + end + 8..]);
         }
@@ -223,7 +223,7 @@ fn response(status: StatusCode, mime: &str, body: Vec<u8>) -> Response<Vec<u8>> 
 
 fn resource_path(path: &str) -> AppResult<(u64, &str)> {
     let tail = path
-        .strip_prefix("/__baalda/vault/")
+        .strip_prefix("/__secondbrain/vault/")
         .ok_or_else(|| AppError::new("missing view epoch"))?;
     let (epoch, rel) = tail
         .split_once('/')
@@ -624,15 +624,15 @@ mod tests {
     fn saved_template_spacing_is_scoped_and_idempotent() {
         let plain = "<html><head></head><body>Custom dashboard</body></html>";
         assert_eq!(template_spacing(plain), plain);
-        let paper = "<head><meta name=\"baalda-template\" content=\"paper-dashboard\"></head>";
+        let paper = "<head><meta name=\"secondbrain-template\" content=\"paper-dashboard\"></head>";
         let padded = template_spacing(paper);
         assert!(padded.contains("padding-top:24px"));
         assert_eq!(template_spacing(&padded), padded);
-        let older = paper.replace("</head>", "<style id=\"baalda-template-spacing\">old spacing</style></head>");
+        let older = paper.replace("</head>", "<style id=\"secondbrain-template-spacing\">old spacing</style></head>");
         let refreshed = template_spacing(&older);
         assert!(!refreshed.contains("old spacing"));
         assert!(refreshed.contains("padding-inline:clamp(16px, 2vw, 24px)"));
-        assert_eq!(refreshed.matches("id=\"baalda-template-spacing\"").count(), 1);
+        assert_eq!(refreshed.matches("id=\"secondbrain-template-spacing\"").count(), 1);
     }
 
     #[test]
@@ -691,7 +691,7 @@ mod tests {
             inner.vault_epoch = 2;
         }
         let request = |path| Request::builder().uri(path).body(Vec::new()).unwrap();
-        assert!(serve(&state, &request("/__baalda/vault/1/Home.html")).is_err());
+        assert!(serve(&state, &request("/__secondbrain/vault/1/Home.html")).is_err());
         assert!(serve(&state, &request("/Home.html")).is_err());
         state.dashboard_views.lock().unwrap().insert(
             "test-lease".into(),
@@ -700,17 +700,17 @@ mod tests {
                 path: "Home.html".into(),
             },
         );
-        assert!(serve(&state, &request("/__baalda/vault/2/Home.html")).is_err());
+        assert!(serve(&state, &request("/__secondbrain/vault/2/Home.html")).is_err());
         let response = serve(
             &state,
-            &request("/__baalda/vault/2/Home.html?lease=test-lease"),
+            &request("/__secondbrain/vault/2/Home.html?lease=test-lease"),
         )
         .unwrap();
         assert_eq!(response.body(), b"home");
         assert_eq!(response.headers()["content-security-policy"], DASHBOARD_CSP);
         assert_eq!(response.headers()["cache-control"], "no-store");
-        assert!(serve(&state, &request("/__baalda/vault/2/%2e%2e/Home.html")).is_err());
-        assert!(serve(&state, &request("/__baalda/sdk.js")).is_ok());
+        assert!(serve(&state, &request("/__secondbrain/vault/2/%2e%2e/Home.html")).is_err());
+        assert!(serve(&state, &request("/__secondbrain/sdk.js")).is_ok());
     }
 
     #[test]

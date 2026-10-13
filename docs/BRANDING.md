@@ -1,15 +1,15 @@
 ---
 type: policy
-product: Baalda
+product: 2ndBrain
 status: active
 date: 2026-07-14
-tags: [baalda, branding, rebrand, policy]
+tags: [secondbrain, branding, rebrand, policy]
 ---
 
 # Branding Policy
 
 How the brand name and the permanent internal identifiers relate, and exactly what may and may not
-change on a future rebrand. Read this before touching anything that says "Baalda" or "context".
+change on a future rebrand. Read this before touching anything that says "2ndBrain" or "context".
 
 ## Why this exists
 
@@ -21,15 +21,24 @@ That must never happen again. Every identifier that touches storage, protocols, 
 uses the permanent codename **"context"**, never the brand. Only three layers exist; a rebrand touches
 exactly one of them.
 
-## Layer 1, BRAND ("Baalda"): cheap to change
+## The 2ndBrain fork rename (2026-10-13)
+
+2ndBrain is a personal fork of [Baalda](https://github.com/naveedharri/baalda). The fork renamed
+**Baalda → 2ndBrain** in one pass. Because the fork had no installs yet, it also reset the Layer 3
+identifiers to `com.artmotion.secondbrain` and renamed the brand-named protocol identifiers that
+upstream had let slip outside Layer 1 to the slug `secondbrain`: the deep-link schemes
+(`secondbrain://`, dev `secondbrain-dev://`), the HTML-view protocol (`secondbrain-view`), the
+`X-SecondBrain-*` headers, `SECONDBRAIN_DEPLOYMENT` and the dashboard-template markers. From here
+on, the rules below apply unchanged to 2ndBrain. Layer 2 (`context`) was not touched.
+
+## Layer 1, BRAND ("2ndBrain"): cheap to change
 
 The brand name may appear **only** in these places. A rebrand touches this list and nothing else:
 
 - All prose in `docs/**` and this file.
-- Root community files: `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `TRADEMARK.md`, `NOTICE`,
+- Root community files: `README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `NOTICE`,
   `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `LICENSE` copyright line.
 - `.github/**` (issue templates, PR template, `workflows/release.yml` release name/URLs).
-- `ee/README.md`, `ee/LICENSE`.
 - `app/apps/desktop/src-tauri/tauri.conf.json`: `productName` and window title.
 - `app/apps/desktop/index.html`: `<title>`.
 - `app/apps/desktop/src/lib/brand.ts`: the single brand-constants module; all desktop UI strings
@@ -37,9 +46,9 @@ The brand name may appear **only** in these places. A rebrand touches this list 
 - `app/apps/server/src/brand.ts`: the single brand-constants module for any server-emitted strings
   that are allowed to show the brand (e.g. email templates), never protocol identifiers.
 - `app/apps/desktop/src-tauri/src/commands.rs`: the user-visible managed notes root folder constant
-  (`~/Baalda`).
+  (`~/2ndBrain`).
 - `app/apps/desktop/src-tauri/Cargo.toml`: `description` / `authors`.
-- The GitHub repo name and its URLs (`github.com/naveedharri/baalda`).
+- The GitHub repo name and its URLs (`github.com/artmotion/claude_baalda`).
 
 **Rule: a rebrand touches only this list.** If you find the brand name anywhere else, that is a bug.
 Move it into `brand.ts` (or the docs equivalent) and reference it from there.
@@ -71,20 +80,20 @@ product idea ("context"), not the brand of the week.
 These two identifiers were set once, on this rebrand, and must **never change again**, not even on a
 future rebrand:
 
-- Tauri bundle identifier: `com.baalda.context`
-- Keychain service: `com.baalda.context`
+- Tauri bundle identifier: `com.artmotion.secondbrain`
+- Keychain service: `com.artmotion.secondbrain`
 
 Changing either orphans every existing install's keychain entry and app data (macOS/Windows key
 scoping and Tauri's per-bundle-id storage are keyed on this string). Precedent: Slack still ships as
-`com.tinyspeck.slack` years after the Tiny Speck → Slack rebrand, for exactly this reason. If Baalda
-rebrands again, the bundle id and keychain service stay `com.baalda.context` forever.
+`com.tinyspeck.slack` years after the Tiny Speck → Slack rebrand, for exactly this reason. If 2ndBrain
+rebrands again, the bundle id and keychain service stay `com.artmotion.secondbrain` forever.
 
 ## How to rebrand (should take under an hour)
 
 1. Pick the new brand name.
 2. Update Layer 1's list only: `brand.ts` (desktop + server), `tauri.conf.json` productName + window
    title, `index.html` title, the `commands.rs` managed-root folder name, `Cargo.toml`
-   description/authors, docs prose, root community files, `.github/**`, `ee/`, and the GitHub repo
+   description/authors, docs prose, root community files, `.github/**`, and the GitHub repo
    name/URLs.
 3. Grep the whole repo (excluding `node_modules`, `target`, `.git`) for the old brand name and fix any
    stray hit. It belongs in Layer 1 only.

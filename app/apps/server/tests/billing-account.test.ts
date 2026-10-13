@@ -69,12 +69,12 @@ describe("account billing routes (team model)", () => {
     await resetDb();
     fakeProvider.reset();
     process.env.POLAR_ACCESS_TOKEN = "test-polar-access-token";
-    process.env.BAALDA_DEPLOYMENT = "cloud";
+    process.env.SECONDBRAIN_DEPLOYMENT = "cloud";
     mutable.billingModel = "team";
   });
   afterEach(() => {
     delete process.env.POLAR_ACCESS_TOKEN;
-    delete process.env.BAALDA_DEPLOYMENT;
+    delete process.env.SECONDBRAIN_DEPLOYMENT;
     mutable.billingModel = originalModel;
   });
   afterAll(async () => {
@@ -224,12 +224,12 @@ describe("account billing routes (team model)", () => {
     // The build that started the checkout is where the success page hands back.
     const dev = await req("POST", "/api/billing/account/checkout", {
       token: owner.token,
-      body: { seats: 3, interval: "month", client: { channel: "dev", scheme: "baalda-dev" } },
+      body: { seats: 3, interval: "month", client: { channel: "dev", scheme: "secondbrain-dev" } },
     });
     expect(dev.status).toBe(200);
     expect(fakeProvider.lastCheckout).toMatchObject({
-      successUrl: expect.stringMatching(/\?checkout_id=\{CHECKOUT_ID\}&app=baalda-dev$/),
-      clientScheme: "baalda-dev",
+      successUrl: expect.stringMatching(/\?checkout_id=\{CHECKOUT_ID\}&app=secondbrain-dev$/),
+      clientScheme: "secondbrain-dev",
     });
 
     const accountId = (await ensureAccountForUser(pool, owner.userId))!;

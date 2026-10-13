@@ -7,11 +7,11 @@ import { config } from "../../config.js";
  * Clickable share links — `GET /open/note/:orgId/:docId` and
  * `GET /open/connect`.
  *
- * A `baalda://` link is dead weight in most chat apps: schemes nobody has
+ * A `secondbrain://` link is dead weight in most chat apps: schemes nobody has
  * allow-listed don't linkify, so the recipient had to copy-paste it into a
  * browser. Share links are therefore `https://<server>/open/note/…` — every
  * chat app makes those clickable — and this page is the landing spot: it
- * immediately bounces to the `baalda://` deep link (which the OS hands to the
+ * immediately bounces to the `secondbrain://` deep link (which the OS hands to the
  * installed app) and shows a button + install pointer as the fallback.
  *
  * Public and unauthenticated ON PURPOSE. The URL carries identity, not access:
@@ -63,7 +63,7 @@ openLinkRoutes.get("/open/note/:orgId/:docId", (c) => {
   <h1>Opening this note in ${esc(BRAND_NAME)}…</h1>
   <p>If nothing happens, ${esc(BRAND_NAME)} may not be installed on this device.</p>
   <a class="button" href="${esc(deepLink)}">Open in ${esc(BRAND_NAME)}</a>
-  <p><a class="plain" href="https://baalda.com" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
+  <p><a class="plain" href="https://github.com/artmotion/claude_baalda" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
   <script>location.href = ${JSON.stringify(deepLink)};</script>
 </main>
 </body>
@@ -79,7 +79,7 @@ openLinkRoutes.get("/open/note/:orgId/:docId", (c) => {
  * correctly; the ones who didn't signed up on the managed instance instead and
  * nobody found out until the admin couldn't see them. Now the admin sends
  * `https://<their server>/open/connect` and this page bounces into
- * `baalda://connect?server=<this server>`, which opens the app on a confirm
+ * `secondbrain://connect?server=<this server>`, which opens the app on a confirm
  * step.
  *
  * Carries no identity and no access — just this server's own address, which is
@@ -117,7 +117,7 @@ openLinkRoutes.get("/open/connect", (c) => {
   <p>Your ${esc(BRAND_NAME)} app will ask you to confirm before it connects.
      If nothing happens, ${esc(BRAND_NAME)} may not be installed on this device.</p>
   <a class="button" href="${esc(deepLink)}">Connect ${esc(BRAND_NAME)}</a>
-  <p><a class="plain" href="https://baalda.com" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
+  <p><a class="plain" href="https://github.com/artmotion/claude_baalda" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
   <script>location.href = ${JSON.stringify(deepLink)};</script>
 </main>
 </body>
@@ -126,7 +126,7 @@ openLinkRoutes.get("/open/connect", (c) => {
 
 /** A host header we're willing to put in a URL: no scheme, path, or markup. */
 const HOST_RE = /^[A-Za-z0-9._:[\]-]{1,255}$/;
-/** A proxy path prefix we're willing to keep, e.g. `/baalda`. */
+/** A proxy path prefix we're willing to keep, e.g. `/secondbrain`. */
 const PREFIX_RE = /^(?:\/[A-Za-z0-9._~-]{1,64})*$/;
 
 /**
@@ -141,7 +141,7 @@ const PREFIX_RE = /^(?:\/[A-Za-z0-9._~-]{1,64})*$/;
  *
  * The Host header is client-supplied, and that is fine here: nobody can set it
  * on someone else's browser, and a link to an attacker's own `/open/connect` is
- * no different from mailing a `baalda://connect` link directly — which the app
+ * no different from mailing a `secondbrain://connect` link directly — which the app
  * confirms before honouring either way. The shape checks exist so a hostile
  * value can't smuggle a path or markup into the link, not as an authz boundary.
  */
@@ -157,11 +157,11 @@ export function publicBaseUrl(c: Context): string {
         : safeProtocol(c.req.url) ?? "http";
     base = `${proto}://${host}`;
   }
-  // A path prefix belongs in the URL — a server behind `example.com/baalda` is
+  // A path prefix belongs in the URL — a server behind `example.com/secondbrain` is
   // not reachable at `example.com` — but the only place we can learn it is the
   // header, because a proxy that forwards the prefix UNSTRIPPED never reaches
   // this handler at all (Hono matches `/open/connect` exactly, so
-  // `/baalda/open/connect` is a 404 — the same limitation `/open/note` has).
+  // `/secondbrain/open/connect` is a 404 — the same limitation `/open/note` has).
   const announced = hdr("x-forwarded-prefix");
   const keep = announced && PREFIX_RE.test(announced) ? stripSlash(announced) : "";
   return stripSlash(base) + keep;

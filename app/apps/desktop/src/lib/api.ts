@@ -8,8 +8,8 @@ import { APP_CHANNEL, APP_SCHEME } from "./deepLinkScheme";
 
 /**
  * Which build starts a checkout, so the server's success page hands back to
- * THIS app (`baalda-staging://` for Staging, `baalda-dev://` for a dev build)
- * rather than whichever app owns `baalda://`. The server allow-lists the scheme.
+ * THIS app (`secondbrain-staging://` for Staging, `secondbrain-dev://` for a dev build)
+ * rather than whichever app owns `secondbrain://`. The server allow-lists the scheme.
  */
 const CHECKOUT_CLIENT = { channel: APP_CHANNEL, scheme: APP_SCHEME } as const;
 import type { AssistantProvider, HousekeeperStatus, HousekeeperScan, HousekeeperEdit, DiagnosticInput, DiagnosticReview } from "./housekeeper";
@@ -28,7 +28,7 @@ import type {
   NoteDeleteResult,
 } from "./sync/bulkTypes";
 
-// The ONE typed HTTP boundary to the Baalda server. Every `fetch`
+// The ONE typed HTTP boundary to the 2ndBrain server. Every `fetch`
 // to the server lives here — auth, organizations, registry, shares, sync-token.
 // Components and managers call these methods; they never call `fetch` directly.
 // (Tauri `invoke` lives in `ipc.ts`; these two are the only I/O boundaries.)
@@ -55,7 +55,7 @@ import type {
 // until the user found Server settings on their own. Self-hosters override it
 // there; nothing here is pinned at build time beyond this default.
 /** The managed instance. Named so the dev guard below can recognise it. */
-export const PRODUCTION_SERVER_URL = "https://api.baalda.com";
+export const PRODUCTION_SERVER_URL = "https://api.secondbrain.example";
 export const LOCAL_SERVER_URL = "http://localhost:3010";
 
 /** Explicit opt-out of everything below: `VITE_SERVER_URL=… pnpm dev:desktop`. */
@@ -78,7 +78,7 @@ export const DEFAULT_SERVER_URL =
  *
  * Any OTHER persisted URL is honoured, so switching a dev build to a staging or
  * LAN server from Settings still works; only "dev build → production" is
- * refused, and `VITE_SERVER_URL=https://api.baalda.com` re-enables even that.
+ * refused, and `VITE_SERVER_URL=https://api.secondbrain.example` re-enables even that.
  */
 export function resolveServerUrl(persisted: string | null | undefined): string {
   const clean = stripTrailingSlash((persisted ?? "").trim());
@@ -1298,12 +1298,12 @@ export const REGISTRY_PAGE_LIMIT = 1000;
  *
  * The two kinds are worth telling apart because they send the user to different
  * places: `unreachable` means look at the URL, the DNS and whether the box is
- * up; `not-baalda` means the address is fine and something else is answering on
+ * up; `not-secondbrain` means the address is fine and something else is answering on
  * it (a proxy's default page, a different app, the wrong port).
  */
 export class ServerCheckError extends Error {
   constructor(
-    public kind: "unreachable" | "not-baalda",
+    public kind: "unreachable" | "not-secondbrain",
     message: string,
   ) {
     super(message);
@@ -1351,7 +1351,7 @@ export const REGISTRY_LISTING_TIMEOUT_MS = 120_000;
 // and Settings → Connection say the same words for the same failure.
 const UNREACHABLE_MESSAGE =
   "Couldn't reach that server. Check the URL and that it's online.";
-const NOT_BAALDA_MESSAGE = "That address answered, but it isn't a Baalda server.";
+const NOT_SECONDBRAIN_MESSAGE = "That address answered, but it isn't a 2ndBrain server.";
 
 type FetchLike = typeof fetch;
 
@@ -1365,7 +1365,7 @@ export interface ApiClientOptions {
 }
 
 /** Header carrying `ApiClient.getClientId()`; mirrors the server's ORIGIN_HEADER. */
-export const ORIGIN_HEADER = "x-baalda-origin";
+export const ORIGIN_HEADER = "x-secondbrain-origin";
 
 /** A random opaque id for one app instance. */
 function newClientId(): string {
@@ -1445,7 +1445,7 @@ export class ApiClient {
   }
 
   /**
-   * This app instance's opaque id. Sent on every HTTP call as `x-baalda-origin`
+   * This app instance's opaque id. Sent on every HTTP call as `x-secondbrain-origin`
    * and in the vault channel's `hello`, so the server can tell "this structural
    * change came from the client I'm about to notify" and skip the round trip —
    * a reconcile no longer makes the server tell its author to re-pull its own
@@ -1582,7 +1582,7 @@ export class ApiClient {
   // ---- Reachability -------------------------------------------------------
 
   /**
-   * Is there a Baalda server at this address? Resolves if yes, throws a
+   * Is there a 2ndBrain server at this address? Resolves if yes, throws a
    * {@link ServerCheckError} if no.
    *
    * The ONE probe in this file that fails OPEN, and it exists precisely because
@@ -1623,24 +1623,24 @@ export class ApiClient {
     // A 5xx is the server's own, or a proxy in front of it saying the app is
     // down — "check it's online" is the useful thing to say, not "wrong app".
     if (res.status >= 500) throw new ServerCheckError("unreachable", UNREACHABLE_MESSAGE);
-    if (!res.ok) throw new ServerCheckError("not-baalda", NOT_BAALDA_MESSAGE);
+    if (!res.ok) throw new ServerCheckError("not-secondbrain", NOT_SECONDBRAIN_MESSAGE);
     const text = await res.text();
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch {
       // 200 with HTML: something is there, it just isn't us.
-      throw new ServerCheckError("not-baalda", NOT_BAALDA_MESSAGE);
+      throw new ServerCheckError("not-secondbrain", NOT_SECONDBRAIN_MESSAGE);
     }
     const ok =
       !!parsed && typeof parsed === "object" && (parsed as { ok?: unknown }).ok === true;
-    if (!ok) throw new ServerCheckError("not-baalda", NOT_BAALDA_MESSAGE);
+    if (!ok) throw new ServerCheckError("not-secondbrain", NOT_SECONDBRAIN_MESSAGE);
   }
 
   /**
    * The server's `/health` body, parsed for capability detection
    * (`lib/serverFeatures.ts`). Unlike {@link health} this never throws:
-   * any failure (timeout, network, 5xx, non-JSON, not Baalda) answers null,
+   * any failure (timeout, network, 5xx, non-JSON, not 2ndBrain) answers null,
    * which the caller reads as "unknown", never as "outdated".
    */
   async getHealth(baseUrl?: string): Promise<ServerHealth | null> {
@@ -2951,7 +2951,7 @@ export class ApiClient {
         retryAfterMs(res.headers.get("retry-after")),
       );
     }
-    const cursorHeader = res.headers.get("x-baalda-cursor");
+    const cursorHeader = res.headers.get("x-secondbrain-cursor");
     let body = new Uint8Array(await res.arrayBuffer());
     if (body[0] === 0x1f && body[1] === 0x8b) {
       const inflated = new Blob([body]).stream().pipeThrough(new DecompressionStream("gzip"));
@@ -2961,8 +2961,8 @@ export class ApiClient {
       bytes: body,
       // ABSENT means drained. An empty string is not a cursor either.
       nextCursor: cursorHeader ? Number(cursorHeader) : null,
-      docs: numHeader(res.headers.get("x-baalda-docs")),
-      uncompressedBytes: numHeader(res.headers.get("x-baalda-bytes")),
+      docs: numHeader(res.headers.get("x-secondbrain-docs")),
+      uncompressedBytes: numHeader(res.headers.get("x-secondbrain-bytes")),
     };
   }
 

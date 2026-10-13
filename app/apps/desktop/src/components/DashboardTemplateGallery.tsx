@@ -33,12 +33,12 @@ export function DashboardTemplatePreview({ template, expanded = false }: { templ
     void templateHtml(template).then((value) => {
       if (!alive) return;
       // Place CSP before every upstream resource. Escaping keeps a trusted attribute literal.
-      setHtml(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}"><style>.baalda-template-credit{display:none!important}</style>${value}`);
+      setHtml(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}"><style>.secondbrain-template-credit{display:none!important}</style>${value}`);
     }).catch(() => { if (alive) setError(true); });
     return () => { alive = false; };
   }, [visible, template]);
-  const origin = document.documentElement.dataset.platform === "windows" ? "http://baalda-view.localhost" : "baalda-view://localhost";
-  const url = template.previewUrl && (import.meta.env.MODE === "simulator" ? template.previewUrl : `${origin}/__baalda/template/${template.id}`);
+  const origin = document.documentElement.dataset.platform === "windows" ? "http://secondbrain-view.localhost" : "secondbrain-view://localhost";
+  const url = template.previewUrl && (import.meta.env.MODE === "simulator" ? template.previewUrl : `${origin}/__secondbrain/template/${template.id}`);
   const frameWidth = expanded ? Math.max(720, width) : 1200;
   const scale = width / frameWidth;
   return <div ref={host} className={`dashboard-template-preview${expanded ? " expanded" : ""}`}>

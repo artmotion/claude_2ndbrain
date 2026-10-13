@@ -1,16 +1,16 @@
 ---
 type: product-spec-index
-product: Baalda
-brand: Baalda
+product: 2ndBrain
+brand: 2ndBrain
 status: phases-0-3-complete · phase-4-planned
 date: 2026-07-13
-tags: [baalda, second-brain, spec, build-from-scratch]
+tags: [secondbrain, second-brain, spec, build-from-scratch]
 ---
 
-# Baalda
+# 2ndBrain
 
 **Context** is the product an owner buys: the shared, always-current context your team *and* your
-AI both work from. **Baalda** is the brand. This folder is the build spec: what we are building,
+AI both work from. **2ndBrain** is the brand. This folder is the build spec: what we are building,
 why, the chosen stack, and the live status.
 
 > [!success] The one-line pitch
@@ -22,7 +22,7 @@ why, the chosen stack, and the live status.
 
 ## The goal
 
-Build **Baalda** from scratch, smallest-useful-thing first, nothing fancy. We reuse *patterns and
+Build **2ndBrain** from scratch, smallest-useful-thing first, nothing fancy. We reuse *patterns and
 architecture* from open-source projects (Noteriv, OpenKnowledge, Relay, Hocuspocus, Better Auth)
 but write our own code. We do not ship other people's code.
 
@@ -100,7 +100,7 @@ round-trip lossless. Full detail: [[03-sync-engine]].
 ## Deployment
 
 Self-hosting and production deployment (Docker, env vars, the single-port `/sync`
-topology) are covered in [[DEPLOY]]. The managed backend is live at `https://api.baalda.com`;
+topology) are covered in [[DEPLOY]]. The managed backend is live at `https://api.secondbrain.example`;
 the desktop app points at it (or at any self-hosted instance) via the server URL in Settings.
 
 Cutting a desktop release — the `v*` tag flow, updater vs. OS code signing, and the
@@ -143,7 +143,7 @@ See [[STATUS]] for the live build checklist.
 5. **Reuse patterns, not code.** Study the OSS references, own our implementation.
 6. **Self-hostable, no vendor lock-in.** Everything runs on our infra (Tauri + Node + Postgres).
 
-## Baalda Assistant
+## 2ndBrain Assistant
 
 - [Home and dashboards](DASHBOARDS.md): personal/shared pins and Home, ordinary HTML
   notes, the optional read-only bridge, linked dashboards, and installed Codex.

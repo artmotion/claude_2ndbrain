@@ -1,4 +1,4 @@
-# Working on Baalda
+# Working on 2ndBrain
 
 ## Start here
 
@@ -7,7 +7,7 @@ reference for this repository; this file provides the agent entry point and a
 compact working guide. Consult the relevant code and tests before relying on
 historical implementation details in either document.
 
-- Product and docs index: `docs/Baalda.md`.
+- Product and docs index: `docs/2ndBrain.md`.
 - Design specs: `docs/specs/00`–`04` and `docs/specs/REQUIREMENTS.md`.
 - Build status: `docs/STATUS.md`; branding: `docs/BRANDING.md`.
 - Contribution rules: `CONTRIBUTING.md`; release process: `docs/RELEASE.md`.
@@ -20,7 +20,7 @@ changing an architectural contract.
 
 ## Product and code map
 
-Baalda (internal codename **Context**) is a local-first desktop knowledge app:
+2ndBrain (internal codename **Context**) is a local-first desktop knowledge app:
 plain Markdown files can be edited by local AI tools while people collaborate
 on the same notes in real time.
 

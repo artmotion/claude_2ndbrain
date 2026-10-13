@@ -30,8 +30,8 @@ export const demoConfig = {
    *  DEMO_OWNER_NAME in .env if you like. Log in as this (OAuth or
    *  email+password); the simulator skips it so you don't collide with your own
    *  presence. */
-  ownerEmail: env("DEMO_OWNER_EMAIL", "naveedharri@gmail.com"),
-  ownerName: env("DEMO_OWNER_NAME", "Naveed"),
+  ownerEmail: env("DEMO_OWNER_EMAIL", "owner@example.com"),
+  ownerName: env("DEMO_OWNER_NAME", "Owner"),
   /** Shared login password for every demo member (≥ 8 chars for Better Auth). */
   password: env("DEMO_PASSWORD", "demopass1234"),
   /** Grow the tree to at least this many notes (real import + synthetic). */
@@ -47,7 +47,7 @@ export const demoConfig = {
   wsUrl: env("DEMO_WS_URL", "ws://127.0.0.1:3011"),
   /** Email of the account YOU log into the desktop app as; the simulator skips
    *  it so you don't fight your own presence. Defaults to the owner (you). */
-  skipEmail: env("DEMO_SKIP_EMAIL", env("DEMO_OWNER_EMAIL", "naveedharri@gmail.com")),
+  skipEmail: env("DEMO_SKIP_EMAIL", env("DEMO_OWNER_EMAIL", "owner@example.com")),
   /** How many notes to keep "hot" (crowded with live teammates) for recording. */
   hotSetSize: envInt("DEMO_HOTSET", 48),
   /** How many live docs each member spreads across. */

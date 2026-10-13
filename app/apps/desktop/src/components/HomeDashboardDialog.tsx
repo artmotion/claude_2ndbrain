@@ -266,8 +266,8 @@ export function HomeDashboardDialog() {
       setBusy(false);
       setCopied(false);
     };
-    window.addEventListener("baalda:new-dashboard", open);
-    return () => window.removeEventListener("baalda:new-dashboard", open);
+    window.addEventListener("secondbrain:new-dashboard", open);
+    return () => window.removeEventListener("secondbrain:new-dashboard", open);
   }, []);
   useEffect(() => {
     if (!kind) return;

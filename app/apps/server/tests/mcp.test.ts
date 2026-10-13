@@ -431,7 +431,7 @@ describe("MCP server", () => {
 
     const first = await call(token, "create_note", {
       vaultId: vault,
-      relPath: "naveed-test.md",
+      relPath: "sample-test.md",
       content: "original",
     });
     const docId = first.data.docId as string;
@@ -443,7 +443,7 @@ describe("MCP server", () => {
     // the file looks undeletable.
     const again = await call(token, "create_note", {
       vaultId: vault,
-      relPath: "naveed-test.md",
+      relPath: "sample-test.md",
       content: "different",
     });
     expect(again.isError).toBe(false);
@@ -455,7 +455,7 @@ describe("MCP server", () => {
 
     const { rows } = await pool.query(
       "SELECT id FROM notes WHERE vault_id = $1 AND rel_path = $2 AND deleted_at IS NULL",
-      [vault, "naveed-test.md"],
+      [vault, "sample-test.md"],
     );
     expect(rows).toHaveLength(1);
 
@@ -464,7 +464,7 @@ describe("MCP server", () => {
     await call(token, "delete_note", { docId });
     const remade = await call(token, "create_note", {
       vaultId: vault,
-      relPath: "naveed-test.md",
+      relPath: "sample-test.md",
       content: "fresh",
     });
     expect(remade.data.adopted).toBe(false);

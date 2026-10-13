@@ -1,16 +1,16 @@
 ---
 type: spec
 spec: 01-desktop-app
-product: Baalda
+product: 2ndBrain
 status: draft-v1
 date: 2026-07-13
-tags: [baalda, spec, desktop, tauri, codemirror]
+tags: [secondbrain, spec, desktop, tauri, codemirror]
 ---
 
 # 01 · Desktop App
 
 The client shell: what the user runs. Cross-platform desktop (macOS/Windows/Linux) today, iOS from
-the same core later. Overview: [[00-architecture-overview]]. Index: [[Baalda]].
+the same core later. Overview: [[00-architecture-overview]]. Index: [[2ndBrain]].
 
 ---
 

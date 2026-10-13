@@ -67,7 +67,7 @@ export function folderName(path: string): string {
 }
 
 export const autoRestoredNoticeText = (vault: string) =>
-  `${vault}'s folder was missing, so Baalda restored it in Baalda Vaults and is syncing it.`;
+  `${vault}'s folder was missing, so 2ndBrain restored it in 2ndBrain Vaults and is syncing it.`;
 
 export const reboundToastText = (vault: string, newPath: string) =>
   `${vault} moved to ${folderName(newPath)}.`;

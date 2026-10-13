@@ -7,8 +7,8 @@ import {
   parseHealth,
 } from "../serverFeatures";
 
-const SELF = "https://baalda.example.org";
-const MANAGED = "https://api.baalda.com";
+const SELF = "https://secondbrain.example.org";
+const MANAGED = "https://api.secondbrain.example";
 
 describe("parseHealth", () => {
   it("tolerates the old { ok: true } shape", () => {
@@ -31,7 +31,7 @@ describe("parseHealth", () => {
     });
   });
 
-  it("answers null for anything that is not a Baalda health body", () => {
+  it("answers null for anything that is not a 2ndBrain health body", () => {
     expect(parseHealth(null)).toBeNull();
     expect(parseHealth("ok")).toBeNull();
     expect(parseHealth({ ok: false })).toBeNull();
@@ -78,12 +78,12 @@ describe("backendStatus", () => {
 });
 
 describe("isManagedServer", () => {
-  it("matches api.baalda.com only, case-insensitively, any path or port", () => {
-    expect(isManagedServer("https://api.baalda.com")).toBe(true);
-    expect(isManagedServer("https://API.Baalda.com/")).toBe(true);
-    expect(isManagedServer(" https://api.baalda.com/sync ")).toBe(true);
-    expect(isManagedServer("https://api.baalda.com.evil.example")).toBe(false);
-    expect(isManagedServer("https://staging.baalda.com")).toBe(false);
+  it("matches api.secondbrain.example only, case-insensitively, any path or port", () => {
+    expect(isManagedServer("https://api.secondbrain.example")).toBe(true);
+    expect(isManagedServer("https://API.SECONDBRAIN.EXAMPLE/")).toBe(true);
+    expect(isManagedServer(" https://api.secondbrain.example/sync ")).toBe(true);
+    expect(isManagedServer("https://api.secondbrain.example.evil.example")).toBe(false);
+    expect(isManagedServer("https://staging.secondbrain.example")).toBe(false);
     expect(isManagedServer("http://localhost:3010")).toBe(false);
     expect(isManagedServer("not a url")).toBe(false);
     expect(isManagedServer("")).toBe(false);

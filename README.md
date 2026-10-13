@@ -1,16 +1,6 @@
-
-
-
-
-https://github.com/user-attachments/assets/d7522035-63f6-49a2-b0ec-f1b23755caa3
-
-
-
-
-
 <div align="center">
 
-# Baalda
+# 2ndBrain
 
 **The team second brain. Plain Markdown files on your disk, edited together in real time, and read and written by your AI like a teammate.**
 
@@ -18,25 +8,23 @@ https://github.com/user-attachments/assets/d7522035-63f6-49a2-b0ec-f1b23755caa3
 ![Built with Tauri v2](https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB)
 ![Rust](https://img.shields.io/badge/core-Rust-000000?logo=rust&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/UI-TypeScript-3178C6?logo=typescript&logoColor=white)
-![Status](https://img.shields.io/badge/status-released-brightgreen)
 ![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
-**[baalda.com](https://baalda.com)** · [Download](https://baalda.com/download) · [Docs](docs/Baalda.md) · [Pricing](https://baalda.com/pricing)
+[Docs](docs/2ndBrain.md) · [Self-hosting](docs/DEPLOY.md) · [Status](docs/STATUS.md)
 
 </div>
 
-<div align="center">
-
-<!-- Inline player: edit this file in GitHub's web editor and drag the product film mp4 onto the line below. GitHub inserts a user-attachments URL that renders as a play-in-place player. -->
-
-
-</div>
+> **Based on [Baalda](https://github.com/naveedharri/baalda).** 2ndBrain is a
+> personal, independently maintained fork of the open-source Baalda project by
+> its original authors, used under the Apache License 2.0 (see [`NOTICE`](NOTICE)).
+> It is not affiliated with or endorsed by the Baalda project. This fork offers
+> no hosted service: you run your own server.
 
 ---
 
-## What is Baalda?
+## What is 2ndBrain?
 
-Baalda is a local-first desktop app for notes and knowledge: your second brain. Every note is a plain `.md` file on your own disk, so your data is always yours. What makes Baalda different is that those same files are:
+2ndBrain is a local-first desktop app for notes and knowledge: your second brain. Every note is a plain `.md` file on your own disk, so your data is always yours. What makes 2ndBrain different is that those same files are:
 
 - **Editable by AI.** Because notes are plain files, a local agent like Claude Code edits them right on your disk with zero setup. Cloud and autonomous agents connect through the built-in MCP endpoint. Either way, the AI works your notes like a teammate would.
 - **Shared in real time.** Invite people, share a folder, and edit the same note together with live cursors.
@@ -56,7 +44,7 @@ AI is only as good as the context you give it. A team that wants one shared, alw
 
 Why? The two are built on incompatible foundations. AI-editable notes need loose Markdown on disk as the source of truth. Real-time collaboration is built on CRDTs, whose state is an opaque binary blob. No tool combined them.
 
-We scanned **41** open-source Obsidian-like apps against **12 core requirements** and none satisfied all 12. Baalda is the missing bridge between the two worlds, and that bridge is the whole product.
+We scanned **41** open-source Obsidian-like apps against **12 core requirements** and none satisfied all 12. 2ndBrain is the missing bridge between the two worlds, and that bridge is the whole product.
 
 ---
 
@@ -75,7 +63,7 @@ We scanned **41** open-source Obsidian-like apps against **12 core requirements*
 
 ## Built to scale
 
-Baalda is built to grow with you, from a personal vault to a whole company:
+2ndBrain is built to grow with you, from a personal vault to a whole company:
 
 | | |
 |---|---|
@@ -165,14 +153,6 @@ pnpm run dev:desktop      # launches the Tauri app (Vite on :1420)
 
 Open a folder of Markdown files (or create a new one) and start writing.
 
-### Prefer not to run a server?
-
-Everything above is self-hosted and free. If you'd rather skip the backend ops,
-[baalda.com](https://baalda.com) offers a managed backend for multi-device sync,
-real-time team collaboration, and hosted AI. The desktop app is identical either
-way: in Settings, set the server URL to `https://api.baalda.com` (managed) or to
-your own instance.
-
 ### I want my own hosted server
 
 The Compose bundle brings up Postgres, the migrations and the server in one
@@ -194,7 +174,7 @@ environment variable reference.
 
 A **local** agent needs no setup at all: point Claude Code (or any tool) at your vault folder and it edits the `.md` files directly. The watcher picks up every change and syncs it live to your team.
 
-For **cloud and autonomous agents** that can't reach your disk, Baalda exposes a **Model Context Protocol** endpoint, so any MCP-speaking AI client can work with your vault exactly like a person, limited by the same per-folder permissions.
+For **cloud and autonomous agents** that can't reach your disk, 2ndBrain exposes a **Model Context Protocol** endpoint, so any MCP-speaking AI client can work with your vault exactly like a person, limited by the same per-folder permissions.
 
 1. In the app, go to **Vault settings → MCP** and create a token.
 2. Register the endpoint with your AI client, e.g. Claude Code:
@@ -204,8 +184,7 @@ claude mcp add --transport http context http://localhost:3010/api/mcp \
   --header "Authorization: Bearer mcp_…"
 ```
 
-(On the managed service the endpoint is `https://api.baalda.com/api/mcp`; for a
-self-hosted server, use your server URL plus `/api/mcp`.)
+(For your own server, use its URL plus `/api/mcp`.)
 
 The AI can now `read_note`, `search_notes`, `create_note`, `edit_note` (targeted replace/insert/delete at exact anchors), `update_note`, and more. `read_note` returns a `revision`; pass it back as `expectedRevision` and a write against a note that changed in between is refused instead of merged. Its writes flow through the same sync engine, so if the note is open you'll watch the AI type in real time.
 
@@ -222,7 +201,7 @@ app/
 docs/               Product overview, build status, specs, and reference research
 ```
 
-Deep dives live in [`docs/`](docs/): the [product overview](docs/Baalda.md), the design [specs](docs/specs/), and the [build status](docs/STATUS.md).
+Deep dives live in [`docs/`](docs/): the [product overview](docs/2ndBrain.md), the design [specs](docs/specs/), and the [build status](docs/STATUS.md).
 
 ---
 
@@ -234,10 +213,10 @@ Issues and pull requests are welcome. If you're planning a larger change, please
 
 ## License
 
-Baalda is open source under the **[Apache License 2.0](LICENSE)**. Use it,
+2ndBrain is open source under the **[Apache License 2.0](LICENSE)**. Use it,
 self-host it, modify it, and build commercial products on it, freely.
 
-The **Baalda** name and brand are trademarks and are **not** covered by the
+The **2ndBrain** name and brand are trademarks and are **not** covered by the
 code license; see the [Trademark Policy](TRADEMARK.md). You're welcome to fork
 and run the code; please give your version its own name.
 

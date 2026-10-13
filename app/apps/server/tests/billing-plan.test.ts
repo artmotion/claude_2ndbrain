@@ -23,7 +23,7 @@ function setModel(model: "vault" | "team") {
 }
 function billingOn() {
   vi.stubEnv("POLAR_ACCESS_TOKEN", "test-token");
-  vi.stubEnv("BAALDA_DEPLOYMENT", "cloud");
+  vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "cloud");
 }
 
 let n = 0;
@@ -79,10 +79,10 @@ afterAll(async () => {
 
 describe("planEnforced", () => {
   it("is off for self-host and when billing is disabled", () => {
-    vi.stubEnv("BAALDA_DEPLOYMENT", "self-hosted");
+    vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "self-hosted");
     vi.stubEnv("POLAR_ACCESS_TOKEN", "t");
     expect(planEnforced()).toBe(false);
-    vi.stubEnv("BAALDA_DEPLOYMENT", "cloud");
+    vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "cloud");
     vi.stubEnv("POLAR_ACCESS_TOKEN", "");
     expect(planEnforced()).toBe(false);
     vi.stubEnv("POLAR_ACCESS_TOKEN", "t");
@@ -93,7 +93,7 @@ describe("planEnforced", () => {
 describe("team model, billing not enforced", () => {
   it("returns no limits and every feature", async () => {
     setModel("team");
-    vi.stubEnv("BAALDA_DEPLOYMENT", "self-hosted");
+    vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "self-hosted");
     const owner = await seedUser("selfhost@x.com");
     const acct = await account(owner);
     const org = await vaultOn(acct, owner);
@@ -207,7 +207,7 @@ describe("team model, enforced", () => {
     expect((await checkJoinSeat(pool, org, { userId: stranger }))?.code).toBe("seat_limit_reached");
     expect(await checkJoinSeat(pool, org, { userId: m1 })).toBeNull();
     expect(seatLimitMessage(3)).toBe(
-      "All 3 seats are in use. The vault owner can add seats in Baalda (update the app if you don't see Billing).",
+      "All 3 seats are in use. The vault owner can add seats in 2ndBrain (update the app if you don't see Billing).",
     );
   });
 

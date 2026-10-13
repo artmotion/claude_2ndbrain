@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 describe("folderErrors", () => {
-  const denied = `${DOCUMENTS_DENIED_PREFIX}macOS blocked Baalda from using your Documents folder, so it couldn't create /Users/x/Documents/Baalda Vaults.`;
+  const denied = `${DOCUMENTS_DENIED_PREFIX}macOS blocked 2ndBrain from using your Documents folder, so it couldn't create /Users/x/Documents/2ndBrain Vaults.`;
 
   it("recognises the documents_denied prefix on a string or an Error", () => {
     expect(isDocumentsDenied(denied)).toBe(true);
@@ -14,8 +14,8 @@ describe("folderErrors", () => {
   });
 
   it("strips the code prefix and leaves other messages alone", () => {
-    expect(folderErrorText(denied)).toMatch(/^macOS blocked Baalda/);
-    const refusal = "Baalda cannot use your home folder as a vault. Choose a folder inside it, or let Baalda create one in Documents/Baalda Vaults.";
+    expect(folderErrorText(denied)).toMatch(/^macOS blocked 2ndBrain/);
+    const refusal = "2ndBrain cannot use your home folder as a vault. Choose a folder inside it, or let 2ndBrain create one in Documents/2ndBrain Vaults.";
     expect(folderErrorText(new Error(refusal))).toBe(refusal);
   });
 

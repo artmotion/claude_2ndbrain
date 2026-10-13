@@ -30,8 +30,8 @@ localStorage.setItem(
 const vault = {
   path:
     params.get("platform") === "macos"
-      ? "/Users/kamil/Baalda/Product team"
-      : "C:\\Users\\Kamil\\Baalda\\Product team",
+      ? "/Users/kamil/2ndBrain/Product team"
+      : "C:\\Users\\Kamil\\2ndBrain\\Product team",
   name: "Product team",
   epoch: 1,
 };
@@ -42,7 +42,7 @@ localStorage.setItem(
   JSON.stringify({ "preview-org": vault.path }),
 );
 const note =
-  "Three bets this quarter: a simpler Share dialog, a calmer sidebar, and faster sync. Each one has an owner and a date. See [Pricing experiments](Specs/Pricing%20experiments.md) for the numbers behind the second.\n\n## Getting started\n\n- [How Baalda works](https://baalda.com)\n- [Keyboard shortcuts](https://baalda.com)\n- [Collaborating with your team](https://baalda.com)\n";
+  "Three bets this quarter: a simpler Share dialog, a calmer sidebar, and faster sync. Each one has an owner and a date. See [Pricing experiments](Specs/Pricing%20experiments.md) for the numbers behind the second.\n\n## Getting started\n\n- [How 2ndBrain works](https://github.com/artmotion/claude_baalda)\n- [Keyboard shortcuts](https://github.com/artmotion/claude_baalda)\n- [Collaborating with your team](https://github.com/artmotion/claude_baalda)\n";
 const item = (path: string, isDir = false, children?: any[]) => ({
   id: path,
   path,
@@ -101,8 +101,8 @@ mockIPC(
         return [{ ...vault, openedAt: Date.now() }];
       case "get_vaults_root":
         return params.get("platform") === "macos"
-          ? "/Users/kamil/Baalda"
-          : "C:\\Users\\Kamil\\Baalda";
+          ? "/Users/kamil/2ndBrain"
+          : "C:\\Users\\Kamil\\2ndBrain";
       case "get_server_url":
         return "http://preview.invalid";
       case "list_tree":

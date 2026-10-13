@@ -1,5 +1,8 @@
 # Changelog
 
+> **Upstream history.** Entries up to the fork are the changelog of [Baalda](https://github.com/naveedharri/baalda),
+> which 2ndBrain is based on, kept as-is (product name and issue links included).
+
 All notable changes to Baalda are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
