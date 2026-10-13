@@ -8,8 +8,8 @@
 #      (Payload/<App>.app, zipped). Sign and install it yourself, e.g. with
 #      Sideloadly + a free Apple ID.
 #
-# Everything is uploaded as a workflow artifact and to the rolling `ios-dev`
-# prerelease (one stable download link; production's updater resolves
+# Everything is uploaded as workflow artifacts and (best effort) to the rolling
+# `ios-dev` prerelease (one stable download link; production's updater resolves
 # `releases/latest`, which skips prereleases).
 #
 # The Xcode project (src-tauri/gen/apple) is NOT committed: `tauri ios init`
@@ -127,6 +127,27 @@ jobs:
           xcrun simctl listapps "$UDID" | grep -A3 "$BUNDLE_ID" || true
           ls -l ../dist-ios
 
+      # Artifact downloads need a browser session; a small JPEG of each
+      # screenshot and a log excerpt in the job log can be read by anything
+      # that can read the log (base64 between unique markers).
+      - name: Print screenshots and log excerpts into the job log
+        if: always()
+        working-directory: dist-ios
+        run: |
+          for shot in ios-sim-screenshot.png ios-sim-screenshot-40s.png; do
+            [ -f "$shot" ] || continue
+            sips -Z 900 -s format jpeg -s formatOptions 55 "$shot" --out "/tmp/${shot%.png}.jpg" >/dev/null
+            echo "===SHOT-BEGIN ${shot%.png}==="
+            base64 -b 76 -i "/tmp/${shot%.png}.jpg"
+            echo "===SHOT-END ${shot%.png}==="
+          done
+          for f in ios-sim-stdout.log ios-sim-stderr.log; do
+            echo "===== $f (last 80 lines) ====="; tail -n 80 "$f" 2>/dev/null || true
+          done
+          echo "===== ios-sim-app.log (errors, last 80) ====="
+          grep -iE "error|fault|panic|crash|terminat" ios-sim-app.log 2>/dev/null | tail -n 80 || true
+          ls ios-sim-crash-* 2>/dev/null && head -c 6000 ios-sim-crash-* || true
+
       - name: Build for iOS devices (arm64, release, unsigned .ipa)
         if: always()
         env:
@@ -136,19 +157,39 @@ jobs:
           IPA=$(find apps/desktop/src-tauri/gen/apple/build -maxdepth 3 -name '*.ipa' | head -n1)
           echo "IPA: $IPA"
           test -n "$IPA"
-          mkdir -p ../dist-ios
-          cp "$IPA" ../dist-ios/2ndBrain-unsigned.ipa
-          unzip -l ../dist-ios/2ndBrain-unsigned.ipa | head -n 20
+          mkdir -p ../dist-ipa
+          cp "$IPA" ../dist-ipa/2ndBrain-unsigned.ipa
+          unzip -l ../dist-ipa/2ndBrain-unsigned.ipa | head -n 20
+
+      # The release API refuses zero-byte assets (an app that logs nothing
+      # to stdout leaves an empty capture file).
+      - name: Drop empty files
+        if: always()
+        working-directory: .
+        run: find dist-ios dist-ipa -type f -size 0 -print -delete 2>/dev/null || true
+
+      # Two artifacts so the small simulator evidence (screenshots + logs)
+      # downloads fast without the .ipa.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 2ndBrain-ios-sim-${{ github.sha }}
+          path: dist-ios/*
+          if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: 2ndBrain-ios-${{ github.sha }}
-          path: dist-ios/*
+          name: 2ndBrain-ios-ipa-${{ github.sha }}
+          path: dist-ipa/*
           if-no-files-found: warn
 
+      # Best effort: when the repository's default GITHUB_TOKEN is read-only
+      # this 403s ("Resource not accessible by integration"); the workflow
+      # artifacts above carry the same files.
       - name: Publish to the rolling ios-dev prerelease
         if: always()
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ios-dev
@@ -162,5 +203,7 @@ jobs:
               yourself (e.g. Sideloadly with a free Apple ID; such installs expire after 7 days).
             - `ios-sim-screenshot*.png`, `ios-sim-*.log`: the simulator build launched in an
               iPad simulator by CI.
-          files: dist-ios/*
+          files: |
+            dist-ios/*
+            dist-ipa/*
           fail_on_unmatched_files: false
