@@ -24,7 +24,7 @@ function positiveEnvInt(name: string, fallback: number): number {
  * Max attachment upload size.
  *
  * Sizing rationale (this process runs with V8 capped at 512 MB inside a 1 GiB
- * container, see Dockerfile / railway.json): storing an N-byte blob costs
+ * container, see Dockerfile): storing an N-byte blob costs
  * several multiples of N on the heap at peak, because node-postgres has no
  * binary parameter protocol — the bytes must be rendered into a text-encodable
  * form and then serialized into the outgoing wire buffer. With the base64

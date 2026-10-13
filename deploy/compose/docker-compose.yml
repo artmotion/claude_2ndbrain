@@ -48,8 +48,7 @@ services:
       timeout: 5s
       retries: 20
 
-  # Runs to completion, then the server starts. Mirrors railway.json's
-  # `preDeployCommand`: schema changes land before anything serves traffic, so a
+  # Runs to completion, then the server starts: schema changes land before anything serves traffic, so a
   # deploy can never briefly answer requests against an old schema.
   migrate:
     <<: *server-image

@@ -69,7 +69,7 @@ describe("GET /open/connect", () => {
   it("trusts the forwarded proto and host over the local request", async () => {
     const res = await app.request("/open/connect", {
       headers: {
-        host: "internal-8080.railway.internal",
+        host: "internal-8080.proxy.internal",
         "x-forwarded-proto": "https",
         "x-forwarded-host": "notes.example.com",
       },
@@ -78,7 +78,7 @@ describe("GET /open/connect", () => {
     expect(html).toContain(
       `baalda://connect?server=${encodeURIComponent("https://notes.example.com")}`,
     );
-    expect(html).not.toContain("railway.internal");
+    expect(html).not.toContain("proxy.internal");
   });
 
   it("keeps the path prefix a reverse proxy announces", async () => {

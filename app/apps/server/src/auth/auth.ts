@@ -104,7 +104,7 @@ export const auth = betterAuth({
   ],
   // Where the client IP comes from, for the per-IP rate limit. Better Auth's
   // default reads only `x-forwarded-for`, and only when it holds exactly ONE
-  // address; behind a proxy chain (Railway's edge) it holds several, so no IP
+  // address; behind a proxy chain (a hosting edge) it holds several, so no IP
   // resolved and every user shared one bucket per auth route — a burst from one
   // client could rate-limit everyone's sign-in (prod log, 2026-09-23).
   // `x-real-ip` carries the single client address the edge saw.

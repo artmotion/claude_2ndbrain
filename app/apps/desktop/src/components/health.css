@@ -153,7 +153,7 @@
   font-size: var(--fs-sm);
   line-height: var(--lh-body);
 }
-/* The server host. A long Railway subdomain at the end of a sentence reads as
+/* The server host. A long hosting subdomain at the end of a sentence reads as
    a typo; as a chip it reads as a fact. */
 .health-host {
   display: inline-block;

@@ -9,7 +9,7 @@ import { decodeWsUpdate } from "../src/sync/vault-protocol.js";
 // proves the relay stays correct and bounded under **10,000+ concurrent
 // changes**. Pure in-memory (no DB/Redis) so it's deterministic and CI-safe;
 // the relay code exercised here is byte-for-byte the same as production —
-// InMemoryPubSub is the exact fanout path a single Railway instance runs.
+// InMemoryPubSub is the exact fanout path a single server instance runs.
 //
 // Two shapes:
 //   1. Spread load  — 10k updates round-robined across 20 vaults × 10 members.

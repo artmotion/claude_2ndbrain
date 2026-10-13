@@ -1,5 +1,5 @@
 # pnpm workspace — the monorepo root lives here at app/ (repo root holds
-# railway.json + .github, which reference paths under app/).
+# docs, deploy/ and .github, which reference paths under app/).
 packages:
   - apps/*
 

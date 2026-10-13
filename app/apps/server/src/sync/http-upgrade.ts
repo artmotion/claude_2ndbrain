@@ -5,7 +5,7 @@ import type { Server as HocuspocusServer } from "@hocuspocus/server";
 import type { SyncContext } from "./hocuspocus.js";
 
 /**
- * Single-port deployments (Docker/Railway) expose exactly one port, so the
+ * Single-port deployments (Docker) expose exactly one port, so the
  * Hocuspocus sync WebSocket must also be reachable on the HTTP server, at
  * `/sync`. This hands the upgrade to the SAME Hocuspocus instance used for
  * HOCUSPOCUS_PORT (see sync/hocuspocus.ts createSyncServer) — auth

@@ -16,8 +16,8 @@ tags: [baalda, status, roadmap]
   and desktop (bridge + auth + per-doc sync + presence + sharing UI + attachment sync)
   are wired end-to-end and tested.
 - **Deployment:** 🟢 Production-ready (2026-07-15). The sync WebSocket is served on the HTTP
-  port at `/sync` (single-port topology), and the repo ships a Dockerfile, Railway IaC at
-  `app/.railway/railway.ts` (Dockerfile build, pre-deploy migrations + healthcheck), and [[DEPLOY]]. The managed backend is live at
+  port at `/sync` (single-port topology), and the repo ships a Dockerfile, a Docker Compose bundle (`deploy/compose/`,
+  migrations run before the server starts) and [[DEPLOY]]. The managed backend is live at
   `https://api.baalda.com`; desktop releases ship via `v*` tags → signed installers → Tauri updater.
 - **Billing:** 🟢 Per-vault Pro via Polar, with the full subscription lifecycle (2026-09-09, #109–#111):
   deleting a vault cancels at period end before it deletes, subscriptions survive as tombstones, and an

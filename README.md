@@ -175,19 +175,8 @@ your own instance.
 
 ### I want my own hosted server
 
-To run a server for your team without managing machines, deploy one to Railway in
-a click — it provisions Postgres, generates its own signing secret, runs the
-migrations and gives you an HTTPS URL:
-
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/baalda-server?utm_medium=integration&utm_source=button&utm_campaign=baalda)
-
-The desktop app asks whether your notes live on the managed service or your own
-server before your first sign-in — put that URL there, or send your team
-`https://<your-server>/open/connect` and let them click it. See
-[`docs/DEPLOY.md`](docs/DEPLOY.md) for details.
-
-Prefer your own machine? The Compose bundle brings up the same stack in one
-command:
+The Compose bundle brings up Postgres, the migrations and the server in one
+command on any machine with Docker:
 
 ```bash
 cd deploy/compose

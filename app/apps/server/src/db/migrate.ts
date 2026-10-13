@@ -15,7 +15,7 @@ export async function runMigrations(
   await client.connect();
   const applied: string[] = [];
   try {
-    // ONE migrator at a time, across processes. Railway runs this as a
+    // ONE migrator at a time, across processes. A deploy runs this as a
     // pre-deploy step and a rolling deploy (or a retried one) can start two at
     // once: both read `_migrations`, both see the same file as unapplied, and
     // both run its DDL — the second failing halfway through a migration whose

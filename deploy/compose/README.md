@@ -1,9 +1,6 @@
 # Self-host the Baalda server with Docker Compose
 
-One command, one machine you control, no vendor account. If you'd rather not
-manage a server at all, use the [Railway one-click deploy](../../docs/DEPLOY.md#option-b-railway-one-click)
-or the managed option at [baalda.com](https://baalda.com) — the desktop app is
-identical either way, you just point Server settings somewhere else.
+One command, one machine you control, no vendor account.
 
 ```bash
 cd deploy/compose
@@ -24,8 +21,7 @@ Then in the desktop app: **account menu → Server settings →** your
 
 The ordering is the point: `server` waits on `migrate` finishing successfully,
 which waits on Postgres being healthy. A deploy can therefore never briefly
-answer requests against an old schema. Same guarantee a Railway service gets from
-the `preDeployCommand` in `app/.railway/railway.ts`.
+answer requests against an old schema.
 
 **One port, not two.** The CRDT WebSocket is served on the HTTP port at `/sync`,
 so there is nothing else to open or route. The dedicated `HOCUSPOCUS_PORT` exists
