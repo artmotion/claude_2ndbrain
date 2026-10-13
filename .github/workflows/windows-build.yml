@@ -1,0 +1,89 @@
+# Windows desktop build: an unsigned NSIS installer (.exe) and MSI for the
+# current commit, uploaded as a workflow artifact and published to the rolling
+# `windows-dev` prerelease so there is one stable download link.
+#
+# No updater artifacts: auto-update needs a minisign key pair of our own
+# (TAURI_SIGNING_PRIVATE_KEY secret + the matching `plugins.updater.pubkey`),
+# which this fork does not have yet. Builds are also not Authenticode-signed,
+# so Windows SmartScreen warns on first launch ("More info" → "Run anyway").
+name: Windows build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "app/**"
+      - ".github/workflows/windows-build.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: app/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/apps/desktop/src-tauri
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build installers
+        env:
+          # The server the app suggests on first sign-in. Set the repository
+          # variable SERVER_URL (Settings → Secrets and variables → Actions →
+          # Variables) to your own server; empty means "ask on first sign-in".
+          VITE_SERVER_URL: ${{ vars.SERVER_URL }}
+        shell: bash
+        run: pnpm --filter desktop tauri build --config src-tauri/tauri.ci.conf.json
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p ../dist-win
+          cp apps/desktop/src-tauri/target/release/bundle/nsis/*.exe ../dist-win/
+          cp apps/desktop/src-tauri/target/release/bundle/msi/*.msi ../dist-win/
+          ls -l ../dist-win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 2ndBrain-windows-${{ github.sha }}
+          path: dist-win/*
+          if-no-files-found: error
+
+      - name: Publish to the rolling windows-dev prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-dev
+          name: 2ndBrain Windows dev build
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          body: |
+            Unsigned Windows build of `${{ github.sha }}` from `${{ github.ref_name }}`.
+            Windows SmartScreen will warn on first launch: choose "More info" → "Run anyway".
+            No auto-update in this build.
+          files: dist-win/*
+          fail_on_unmatched_files: true
