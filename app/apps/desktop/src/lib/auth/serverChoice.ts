@@ -1,19 +1,13 @@
-// Which server this device's account lives on — the first question the auth
-// dialog asks, and the one it used to hide.
-//
-// The old sign-in form had ONE server: whatever `DEFAULT_SERVER_URL` said, with
-// a collapsed `<details>` "Server settings" at the bottom of the card. For the
-// managed instance that is right. For a self-hosting team it is a trap: every
-// member who installs the app signs up on api.secondbrain.example, gets an account and a
-// vault there, and only finds out when their admin cannot see them (#91). So the
-// choice is now a step of its own, both options carrying equal weight, and the
-// form that follows says which server it is about to post credentials to.
+// Which server this device's account lives on. There is no hosted service: a
+// build either carries its owner's server (`VITE_SERVER_URL`) or asks for the
+// address on the first sign-in, and the form always says which server it is
+// about to post credentials to, with a way to change it.
 //
 // Pure on purpose: the desktop workspace has no DOM test harness, so the
 // decision table and the URL normalizer are plain functions with a unit test,
 // exactly like `resolveServerUrl` next door.
 
-import { DEFAULT_SERVER_URL } from "../api";
+import { DEFAULT_SERVER_URL, HAS_BUILT_IN_SERVER } from "../api";
 
 /**
  * What the user answered, persisted per device (`lib/prefs.ts`).
@@ -22,7 +16,7 @@ import { DEFAULT_SERVER_URL } from "../api";
  * it is the only thing that makes the step appear at all, so defaulting it
  * would silently restore the old behaviour.
  */
-export type ServerChoice = "managed" | "custom";
+export type ServerChoice = "custom";
 
 /** The steps the auth dialog can be on. */
 export type AuthStep = "choose-server" | "confirm-link" | "form";
@@ -137,6 +131,7 @@ export function decideAuthStep({
   serverUrl,
   pendingServerLink = null,
   defaultServerUrl = DEFAULT_SERVER_URL,
+  hasBuiltInServer = HAS_BUILT_IN_SERVER,
 }: {
   /** The persisted answer, or `null` if this device was never asked. */
   choice: ServerChoice | null;
@@ -146,14 +141,16 @@ export function decideAuthStep({
   pendingServerLink?: string | null;
   /** Injectable so the table test doesn't depend on the build's default. */
   defaultServerUrl?: string;
+  /** Whether this build came with a server address (`VITE_SERVER_URL`, or dev). */
+  hasBuiltInServer?: boolean;
 }): AuthStep {
   if (pendingServerLink) return "confirm-link";
-  // Never asked lands on the form too (#305): a fresh install behaves as
-  // managed on the build's default server, which the form names with a
-  // one-click "Use a self-hosted server" link (the #91 safeguard, lighter).
-  // `choose-server` is reached only from that link.
-  void choice;
-  void serverUrl;
-  void defaultServerUrl;
-  return "form";
+  // There is no hosted service to fall back on. A build that came with a
+  // server (or a device already pointed somewhere else) goes straight to the
+  // form, which names the server with a "Change" link; a build without one
+  // asks for the address first, so nobody posts a password to localhost.
+  if (choice || hasBuiltInServer) return "form";
+  const current = normalizeServerUrl(serverUrl);
+  if (current && current !== normalizeServerUrl(defaultServerUrl)) return "form";
+  return "choose-server";
 }

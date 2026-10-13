@@ -84,61 +84,67 @@ describe("impliedServerChoice", () => {
 
   it("treats the default (however it was spelled) as no answer", () => {
     expect(impliedServerChoice(def, def)).toBeNull();
-    expect(impliedServerChoice("https://api.secondbrain.example/", def)).toBeNull();
+    expect(impliedServerChoice(`${def}/`, def)).toBeNull();
   });
 });
 
 describe("decideAuthStep", () => {
-  const def = "https://api.secondbrain.example";
+  const def = "http://localhost:3010";
 
-  it("opens a first run on the form, on the managed default (#305)", () => {
+  it("asks for the server on a first run when the build has none", () => {
     expect(
-      decideAuthStep({ choice: null, serverUrl: def, defaultServerUrl: def }),
+      decideAuthStep({ choice: null, serverUrl: def, defaultServerUrl: def, hasBuiltInServer: false }),
+    ).toBe("choose-server");
+  });
+
+  it("opens a first run on the form when the build names a server", () => {
+    expect(
+      decideAuthStep({
+        choice: null,
+        serverUrl: "https://notes.example.com",
+        defaultServerUrl: "https://notes.example.com",
+        hasBuiltInServer: true,
+      }),
     ).toBe("form");
   });
 
   it("does not ask again once the question is answered", () => {
     expect(
-      decideAuthStep({ choice: "managed", serverUrl: def, defaultServerUrl: def }),
-    ).toBe("form");
-    expect(
-      decideAuthStep({
-        choice: "custom",
-        serverUrl: "https://notes.example.com",
-        defaultServerUrl: def,
-      }),
+      decideAuthStep({ choice: "custom", serverUrl: def, defaultServerUrl: def, hasBuiltInServer: false }),
     ).toBe("form");
   });
 
-  it("does not ask a pre-#91 device that already points at its own server", () => {
-    // It answered through the old <details>; asking again risks defaulting it
-    // to managed, which is the whole bug.
+  it("does not ask a device that already points at another server", () => {
     expect(
       decideAuthStep({
         choice: null,
         serverUrl: "https://notes.example.com",
         defaultServerUrl: def,
+        hasBuiltInServer: false,
       }),
     ).toBe("form");
   });
 
   it("lets a pending invite link outrank every other step", () => {
-    for (const choice of [null, "managed", "custom"] as const) {
-      expect(
-        decideAuthStep({
-          choice,
-          serverUrl: def,
-          pendingServerLink: "https://notes.example.com",
-          defaultServerUrl: def,
-        }),
-      ).toBe("confirm-link");
+    for (const choice of [null, "custom"] as const) {
+      for (const hasBuiltInServer of [true, false]) {
+        expect(
+          decideAuthStep({
+            choice,
+            serverUrl: def,
+            pendingServerLink: "https://notes.example.com",
+            defaultServerUrl: def,
+            hasBuiltInServer,
+          }),
+        ).toBe("confirm-link");
+      }
     }
   });
 
   it("ignores an empty pending link", () => {
     expect(
       decideAuthStep({
-        choice: "managed",
+        choice: "custom",
         serverUrl: def,
         pendingServerLink: "",
         defaultServerUrl: def,

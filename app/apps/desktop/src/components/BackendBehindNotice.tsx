@@ -1,17 +1,15 @@
 import { useEffect } from "react";
 import { useStore } from "../store";
 import { authManager } from "../lib/auth/authManager";
+import { BRAND_NAME } from "../lib/brand";
 import {
   BACKEND_CHECK_INTERVAL_MS,
   backendStatus,
   primeServerFeatures,
 } from "../lib/serverFeatures";
 
-/** Copy for the two audiences: a self-hoster can act, a managed user waits. */
-export const BACKEND_BEHIND_SELF_HOSTED =
-  "Your 2ndBrain backend is behind this app. Update your self-hosted server to keep sync working.";
-export const BACKEND_BEHIND_MANAGED =
-  "The 2ndBrain server is being updated. Some sync features are paused until it finishes.";
+/** Every server is self-hosted, so the owner can act on this. */
+export const BACKEND_BEHIND_SELF_HOSTED = `Your ${BRAND_NAME} backend is behind this app. Update your self-hosted server to keep sync working.`;
 
 /**
  * Polls `/health` and mirrors the verdict into the store. Re-runs when the
@@ -31,7 +29,7 @@ function useBackendStatusPoll(): void {
       const health = await authManager.api.getHealth(serverUrl);
       // The sync layer reads the same answer (`serverFeatures`): no second poll.
       primeServerFeatures(serverUrl, health);
-      if (!cancelled) setBackendStatus(backendStatus(health, serverUrl));
+      if (!cancelled) setBackendStatus(backendStatus(health));
     };
     // A URL change must not keep showing the previous server's verdict.
     setBackendStatus(null);
@@ -56,7 +54,7 @@ export function BackendBehindNotice() {
   const requestAccountSettings = useStore((s) => s.requestAccountSettings);
   if (!status?.outdated) return null;
 
-  const copy = status.managed ? BACKEND_BEHIND_MANAGED : BACKEND_BEHIND_SELF_HOSTED;
+  const copy = BACKEND_BEHIND_SELF_HOSTED;
   const tooltip = [
     copy,
     `Missing: ${status.missing.join(", ")}`,

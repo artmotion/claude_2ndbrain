@@ -541,17 +541,21 @@ copy inside the container: `docker exec -it <container> node dist/scripts/set-pa
 
 ## Point the desktop app at your server
 
-An account belongs to **one server**. A teammate who signs up on the managed
-instance by mistake gets an account and a vault there, and nobody notices until
-you cannot see them in Members — so the app asks which server before it takes a
-password.
+An account belongs to **one server**, and there is no hosted service to fall
+back on, so the app always knows which server it is about to post a password to.
 
-**On first run**, the sign-in dialog opens on *"Where do your notes live?"* with
-two options: the managed service, or **Your own server**. Choosing your own asks
-for the URL and checks `GET <url>/health` before it goes any further, so a typo
-is one inline sentence instead of a `Load failed` three screens later. The
-sign-in form that follows names the server it is about to post to, with a
-**Change** link back.
+**Build your server in.** Set `VITE_SERVER_URL=https://notes.example.com` when
+building the desktop app and every install starts pointed at your server. In
+this repository's GitHub Actions builds, set the repository variable
+`SERVER_URL` (Settings → Secrets and variables → Actions → Variables). Set
+`VITE_BRAND_NAME` (desktop build) and `BRAND_NAME` (server env) to show your own
+name instead of "2ndBrain".
+
+**On first run** of a build without a server, the sign-in dialog opens on
+*"Connect to your server"*: it asks for the URL and checks `GET <url>/health`
+before it goes any further, so a typo is one inline sentence instead of a
+`Load failed` three screens later. The sign-in form names the server it is about
+to post to, with a **Change** link back.
 
 **Later**, or on a device already signed in somewhere else: **Account settings →
 Connection**. Same health check, same rules. Changing the server is a de-facto

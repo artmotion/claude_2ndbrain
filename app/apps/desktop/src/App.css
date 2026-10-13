@@ -4982,12 +4982,8 @@ button.secondary.about-update-btn:disabled {
   box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.3));
 }
 
-/* ---- Server choice — the auth dialog's first step (#91) ----
-   The server URL used to be a collapsed <details> "Server settings" at the
-   bottom of this card, which is why self-hosting teams' members kept signing
-   up on the managed instance: it was the only option with any visual weight.
-   The two options here deliberately share one class so neither can read as
-   the default. */
+/* ---- Server step — the auth dialog's first step on a build with no server
+   built in: one address field, checked against /health before it is used. */
 .server-choice {
   display: flex;
   flex-direction: column;

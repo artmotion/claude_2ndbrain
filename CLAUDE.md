@@ -38,11 +38,13 @@ Three pieces; this open-source repo holds the first two.
   `releases/latest` and so skips prereleases. Promotion is a fast-forward `staging` → `main` plus
   the four-file version bump; see `docs/RELEASE.md` → Staging.
 - **Backend server** (`app/apps/server`) — open source and self-hostable (Node + Postgres).
-  This fork offers **no hosted service**: the owner self-hosts it with Docker (`deploy/compose/`)
-  and points the app at it via the server URL in Settings. The desktop code still carries the
-  upstream "managed server" option with a placeholder URL (`https://api.secondbrain.example`,
-  `lib/api.ts PRODUCTION_SERVER_URL`); it is slated for removal. Self-host/deploy guide:
-  `docs/DEPLOY.md`.
+  This fork offers **no hosted service**: the owner self-hosts it with Docker (`deploy/compose/`).
+  A desktop build carries its server through `VITE_SERVER_URL` (`lib/api.ts DEFAULT_SERVER_URL`,
+  `HAS_BUILT_IN_SERVER`; CI reads the `SERVER_URL` repository variable); a build without one
+  asks for the address on first sign-in (`lib/auth/serverChoice.ts decideAuthStep`), and it can
+  always be changed in Account Settings → Connection. The brand name is configurable too:
+  `VITE_BRAND_NAME` (desktop, `lib/brand.ts`) and `BRAND_NAME` (server env, `src/brand.ts`).
+  Self-host/deploy guide: `docs/DEPLOY.md`.
 - **Origin** — 2ndBrain is a personal fork of [Baalda](https://github.com/naveedharri/baalda)
   (Apache-2.0). Upstream's managed service, website, trademark policy and `ee/` directory are not
   part of this fork.
@@ -527,9 +529,8 @@ The **backend-behind notice** (`components/BackendBehindNotice.tsx`, pure logic 
 identity bar. It polls `GET /health` (on server URL / user / vault change and every 10 min) and shows
 only when the server ANSWERED and lacks a feature in `REQUIRED_SERVER_FEATURES` (`notes-with-state`)
 — keyed off `features`, never the version string; an old `{ ok: true }` counts as lacking all of
-them. Unreachable or unparseable ⇒ unknown ⇒ nothing (a flaky network never raises it). Copy depends
-on the host: the managed `api.secondbrain.example` says the server is being updated; any other server tells
-the self-hoster to update it. Clicking opens Account Settings → About. The verdict is a store
+them. Unreachable or unparseable ⇒ unknown ⇒ nothing (a flaky network never raises it). The copy tells
+the self-hoster to update their server. Clicking opens Account Settings → About. The verdict is a store
 mirror (`backendStatus`) and never gates sync on its own; the sync layer reads the same cached
 feature set.
 

@@ -1,31 +1,18 @@
 import { describe, it, expect } from "vitest";
-import {
-  resolveServerUrl,
-  DEFAULT_SERVER_URL,
-  LOCAL_SERVER_URL,
-  PRODUCTION_SERVER_URL,
-} from "../api";
+import { resolveServerUrl, DEFAULT_SERVER_URL, HAS_BUILT_IN_SERVER, LOCAL_SERVER_URL } from "../api";
 
-// Vitest runs with import.meta.env.DEV === true, which is exactly the mode
-// these rules are about: a dev build must never end up talking to production
-// just because the URL was persisted once.
+// Vitest runs with import.meta.env.DEV === true and no VITE_SERVER_URL, i.e. a
+// dev build: it talks to the local stack and counts as having a server.
 describe("resolveServerUrl (dev build)", () => {
   it("defaults to the local stack when nothing is persisted", () => {
     expect(DEFAULT_SERVER_URL).toBe(LOCAL_SERVER_URL);
+    expect(HAS_BUILT_IN_SERVER).toBe(true);
     expect(resolveServerUrl(null)).toBe(LOCAL_SERVER_URL);
     expect(resolveServerUrl("")).toBe(LOCAL_SERVER_URL);
     expect(resolveServerUrl("   ")).toBe(LOCAL_SERVER_URL);
   });
 
-  it("ignores a persisted production URL", () => {
-    // The reported state: config.json held api.secondbrain.example, so every launch of
-    // `pnpm dev:desktop` was reading and writing real vaults.
-    expect(resolveServerUrl(PRODUCTION_SERVER_URL)).toBe(LOCAL_SERVER_URL);
-    expect(resolveServerUrl("https://api.secondbrain.example/")).toBe(LOCAL_SERVER_URL);
-  });
-
-  it("honours any other persisted server", () => {
-    // Staging / LAN / self-host overrides must keep working from Settings.
+  it("honours any persisted server, without its trailing slash", () => {
     expect(resolveServerUrl("https://staging.example.com")).toBe(
       "https://staging.example.com",
     );

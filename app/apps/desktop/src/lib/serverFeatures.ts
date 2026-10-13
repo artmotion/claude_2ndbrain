@@ -13,9 +13,6 @@
 /** Features this desktop needs from its server. Extend as the wire grows. */
 export const REQUIRED_SERVER_FEATURES: readonly string[] = ["notes-with-state"];
 
-/** Host of the managed instance (`PRODUCTION_SERVER_URL`). */
-export const MANAGED_SERVER_HOST = "api.secondbrain.example";
-
 export interface ServerHealth {
   ok: boolean;
   /** Empty for a server that predates feature advertising. */
@@ -29,8 +26,6 @@ export interface BackendStatus {
   /** Required features the server did not advertise. Empty unless outdated. */
   missing: string[];
   serverVersion?: string;
-  /** True when the server URL is the managed `api.secondbrain.example`. */
-  managed: boolean;
 }
 
 /**
@@ -53,16 +48,6 @@ export function parseHealth(body: unknown): ServerHealth | null {
   return out;
 }
 
-/** True when `serverUrl`'s host is the managed instance. Malformed ⇒ false. */
-export function isManagedServer(serverUrl: string | null | undefined): boolean {
-  if (!serverUrl) return false;
-  try {
-    return new URL(serverUrl.trim()).hostname.toLowerCase() === MANAGED_SERVER_HOST;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Judge a health answer. `health` null (fetch failed, unreachable, not
  * 2ndBrain) ⇒ not outdated: we only warn when the server answered and
@@ -70,14 +55,12 @@ export function isManagedServer(serverUrl: string | null | undefined): boolean {
  */
 export function backendStatus(
   health: ServerHealth | null,
-  serverUrl: string | null | undefined,
   required: readonly string[] = REQUIRED_SERVER_FEATURES,
 ): BackendStatus {
-  const managed = isManagedServer(serverUrl);
-  if (!health || !health.ok) return { outdated: false, missing: [], managed };
+  if (!health || !health.ok) return { outdated: false, missing: [] };
   const have = new Set(health.features);
   const missing = required.filter((f) => !have.has(f));
-  const status: BackendStatus = { outdated: missing.length > 0, missing, managed };
+  const status: BackendStatus = { outdated: missing.length > 0, missing };
   if (health.version) status.serverVersion = health.version;
   return status;
 }

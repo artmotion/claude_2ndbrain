@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_SERVER_URL } from "../lib/api";
+import { BRAND_NAME } from "../lib/brand";
 import { authManager } from "../lib/auth/authManager";
 import {
   type AuthStep,
@@ -51,38 +51,6 @@ function GoogleGlyph() {
   );
 }
 
-/** Cloud mark for the managed-service card. */
-function CloudGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none"
-      stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.5 19a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.3 9.2 4.5 4.5 0 0 0 7 18.99h10.5Z" />
-    </svg>
-  );
-}
-
-/** Rack-server mark for the self-hosted card. */
-function ServerGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none"
-      stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="4" width="18" height="7" rx="2" />
-      <rect x="3" y="13" width="18" height="7" rx="2" />
-      <path d="M7 7.5h.01M7 16.5h.01" />
-    </svg>
-  );
-}
-
-/** Trailing chevron on a card; rotates when the card is expanded. */
-function ChevronGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m9 6 6 6-6 6" />
-    </svg>
-  );
-}
-
 /**
  * Focused sign-in / sign-up modal; closes itself once a session lands. When a
  * caller needs to act on a *successful* sign-in (vs. a cancel), it passes
@@ -93,15 +61,12 @@ function ChevronGlyph() {
  * welcome screen's "Join a team" route opens on sign-up: someone holding a
  * teammate's join code is usually here for the first time.
  *
- * THREE STEPS, not one. Before this dialog will take a password it wants to
- * know which server the account belongs to, because the alternative — one
- * server, with a collapsed "Server settings" disclosure under the form — meant
- * self-hosting teams' members reliably signed up on the managed instance and
- * nobody noticed until the admin couldn't find them (#91):
+ * THREE STEPS, not one. There is no hosted service, so before this dialog will
+ * take a password it needs to know which server the account belongs to:
  *
- *   choose-server → form            (first run on this device)
+ *   choose-server → form            (first run, and the build has no server)
  *   confirm-link  → form            (an invite link is offering a server)
- *   form                            (the question is already answered)
+ *   form                            (the server is already known)
  *
  * The form step then names its server in a caption, with a way back, so the
  * answer is visible at the moment it matters rather than buried in Settings.
@@ -190,9 +155,6 @@ export function AuthDialog({
   // Consecutive "Invalid email or password" answers per email, which is the
   // only signal for when the Google hint can be the real cause.
   const [failedSignIns, setFailedSignIns] = useState<Record<string, number>>({});
-  // Revealed by the "Your own server" card rather than shown alongside it: an
-  // input sitting under two options reads as belonging to both.
-  const [ownOpen, setOwnOpen] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
   // Inline, never a toast: `<Toasts />` is only mounted in the vault-open
   // branch of App, so anything raised from the welcome screen's sign-in would
@@ -233,18 +195,6 @@ export function AuthDialog({
     setMode("sign-up");
     setEmail(invitePrompt.email);
   }, [invitePrompt?.id]);
-
-  const chooseManaged = async () => {
-    setServerError(null);
-    writeServerChoice("managed");
-    // DEFAULT_SERVER_URL, never the production constant: a dev build refuses a
-    // persisted production URL (`resolveServerUrl`), so hard-coding it here
-    // would "save" and then snap back to localhost with no explanation.
-    if (serverUrl !== DEFAULT_SERVER_URL) {
-      await useStore.getState().setServerUrl(DEFAULT_SERVER_URL);
-    }
-    setStep("form");
-  };
 
   /**
    * Adopt a server address, but only after it answers. Checking first is the
@@ -426,7 +376,7 @@ export function AuthDialog({
 
   const title =
     step === "choose-server"
-      ? "Where do your notes live?"
+      ? "Connect to your server"
       : step === "confirm-link"
         ? `Connect to ${serverHost(pendingServerLink ?? serverUrl)}?`
         : mode === "reset"
@@ -448,88 +398,34 @@ export function AuthDialog({
         {step === "choose-server" ? (
           <div className="server-choice">
             <p className="server-choice-lede">
-              Your account and your team live on one server. Pick the managed
-              service, or your team's own.
+              Your account and your team live on your own {BRAND_NAME} server.
+              Enter its address.
             </p>
-            {/* Two cards, one class: a self-hosting team's members were signing
-                up on the managed service because it was the only option with
-                any visual weight at all. */}
-            <button
-              type="button"
-              className="server-option"
-              onClick={() => void chooseManaged()}
-            >
-              <span className="server-option-head">
-                <span className="server-option-icon">
-                  <CloudGlyph />
-                </span>
-                <span className="server-option-text">
-                  <span className="server-option-title">2ndBrain managed service</span>
-                  <span className="server-option-hint">
-                    Hosted for you at {serverHost(DEFAULT_SERVER_URL)}
-                  </span>
-                </span>
-                <span className="server-option-chevron">
-                  <ChevronGlyph />
-                </span>
-              </span>
-            </button>
-            {/* A div, not a button: once open, this card holds the URL input
-                and the Connect button, and interactive content can't nest
-                inside a <button>. The header row stays the clickable part. */}
-            <div className={`server-option${ownOpen ? " active" : ""}`}>
-              <button
-                type="button"
-                className="server-option-head"
-                aria-expanded={ownOpen}
-                onClick={() => {
-                  setOwnOpen(true);
-                  setServerError(null);
+            <div className="row server-connect-row">
+              <input
+                autoFocus
+                value={urlDraft}
+                onChange={(e) => setUrlDraft(e.target.value)}
+                placeholder="https://notes.example.com"
+                spellCheck={false}
+                autoCapitalize="off"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void connectTo(urlDraft);
+                  }
                 }}
+              />
+              <AsyncButton
+                type="button"
+                className="primary"
+                disabled={urlDraft.trim() === ""}
+                onClick={() => connectTo(urlDraft)}
               >
-                <span className="server-option-icon">
-                  <ServerGlyph />
-                </span>
-                <span className="server-option-text">
-                  <span className="server-option-title">Your own server</span>
-                  <span className="server-option-hint">
-                    Self-hosted — enter the address your team gave you
-                  </span>
-                </span>
-                <span className="server-option-chevron">
-                  <ChevronGlyph />
-                </span>
-              </button>
-              {ownOpen && (
-                <div className="server-option-body">
-                  <div className="row server-connect-row">
-                    <input
-                      autoFocus
-                      value={urlDraft}
-                      onChange={(e) => setUrlDraft(e.target.value)}
-                      placeholder="https://notes.example.com"
-                      spellCheck={false}
-                      autoCapitalize="off"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void connectTo(urlDraft);
-                        }
-                      }}
-                    />
-                    <AsyncButton
-                      type="button"
-                      className="primary"
-                      disabled={urlDraft.trim() === ""}
-                      onClick={() => connectTo(urlDraft)}
-                    >
-                      Connect
-                    </AsyncButton>
-                  </div>
-                  {serverError && <div className="auth-error">{serverError}</div>}
-                </div>
-              )}
+                Connect
+              </AsyncButton>
             </div>
+            {serverError && <div className="auth-error">{serverError}</div>}
           </div>
         ) : step === "confirm-link" ? (
           <div className="server-choice">
@@ -840,16 +736,11 @@ export function AuthDialog({
                 className="linkish"
                 onClick={() => {
                   setUrlDraft("");
-                  setOwnOpen(false);
                   setServerError(null);
                   setStep("choose-server");
                 }}
               >
-                {/* On the build's default (managed) server, name the escape
-                    hatch outright: a fresh install no longer asks first (#305). */}
-                {normalizeServerUrl(serverUrl) === normalizeServerUrl(DEFAULT_SERVER_URL)
-                  ? "Use a self-hosted server"
-                  : "Change"}
+                Change
               </button>
             </p>
           </>

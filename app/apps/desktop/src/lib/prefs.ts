@@ -102,8 +102,9 @@ export function writeAutomaticItemColors(
 const SERVER_CHOICE_KEY = "context.serverChoice";
 
 /**
- * The answer to "managed service, or your own server?" — asked once, on the
- * first sign-in this device ever sees (see `lib/auth/serverChoice.ts`).
+ * Whether this device has been pointed at a server — asked once, on the first
+ * sign-in this device ever sees when the build has no server built in (see
+ * `lib/auth/serverChoice.ts`).
  *
  * Device-local like the theme, and deliberately NOT the server URL itself: that
  * lives in the Rust app config, because the auth manager needs it before any
@@ -117,7 +118,7 @@ const SERVER_CHOICE_KEY = "context.serverChoice";
 export function readServerChoice(): ServerChoice | null {
   try {
     const v = localStorage.getItem(SERVER_CHOICE_KEY);
-    return v === "managed" || v === "custom" ? v : null;
+    return v === "custom" ? v : null;
   } catch {
     return null;
   }

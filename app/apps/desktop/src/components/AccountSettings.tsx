@@ -1,5 +1,5 @@
+import { BRAND_NAME } from "../lib/brand";
 import { useEffect, useRef, useState } from "react";
-import { DEFAULT_SERVER_URL } from "../lib/api";
 import type { AccountSettingsTab } from "../lib/settingsTabs";
 import { authManager } from "../lib/auth/authManager";
 import { normalizeServerUrl, serverHost } from "../lib/auth/serverChoice";
@@ -626,7 +626,7 @@ function ConnectionTab() {
     setError(null);
     try {
       await authManager.api.health(url);
-      writeServerChoice(url === DEFAULT_SERVER_URL ? "managed" : "custom");
+      writeServerChoice("custom");
       await useStore.getState().setServerUrl(url);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2500);
@@ -649,10 +649,9 @@ function ConnectionTab() {
           autoCapitalize="off"
         />
         <span className="field-hint">
-          The 2ndBrain server this device syncs against — currently{" "}
-          <strong>{serverHost(serverUrl)}</strong>. Use the managed service or
-          point at your own. Your account is per-server, so switching signs you
-          in to that server's session instead.
+          The {BRAND_NAME} server this device syncs against — currently{" "}
+          <strong>{serverHost(serverUrl)}</strong>. Your account is per-server,
+          so switching signs you in to that server's session instead.
         </span>
       </label>
       <div className="update-actions">

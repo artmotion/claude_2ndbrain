@@ -100,8 +100,8 @@ round-trip lossless. Full detail: [[03-sync-engine]].
 ## Deployment
 
 Self-hosting and production deployment (Docker, env vars, the single-port `/sync`
-topology) are covered in [[DEPLOY]]. The managed backend is live at `https://api.secondbrain.example`;
-the desktop app points at it (or at any self-hosted instance) via the server URL in Settings.
+topology) are covered in [[DEPLOY]]. This fork has no hosted backend:
+the desktop app points at your own server via the server URL in Settings (or `VITE_SERVER_URL` at build time).
 
 Cutting a desktop release — the `v*` tag flow, updater vs. OS code signing, and the
 macOS notarization setup — is covered in [[RELEASE]]. It also carries the two runbooks
