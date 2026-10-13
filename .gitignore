@@ -1,0 +1,17 @@
+# Dependencies and build output (every workspace)
+node_modules/
+.turbo/
+dist/
+dist-ssr/
+target/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs and OS/editor noise
+*.log
+.DS_Store
+.idea/
