@@ -537,14 +537,31 @@ fn open_vault_impl(app: &AppHandle, state: &State<AppState>, path: PathBuf) -> A
 /// Native folder picker → open the chosen vault. Returns None if cancelled.
 #[tauri::command]
 pub async fn pick_vault(app: AppHandle, state: State<'_, AppState>) -> AppResult<Option<VaultInfo>> {
-    let folder = app.dialog().file().blocking_pick_folder();
-    let Some(folder) = folder else {
+    let Some(path) = blocking_pick_folder(&app)? else {
         return Ok(None);
     };
-    let path = folder
-        .into_path()
-        .map_err(|e| AppError::new(format!("invalid folder: {e}")))?;
     Ok(Some(open_vault_inner(&app, &state, path)?))
+}
+
+/// The native folder picker, blocking until the user chooses or cancels.
+#[cfg(desktop)]
+fn blocking_pick_folder(app: &AppHandle) -> AppResult<Option<PathBuf>> {
+    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    folder
+        .into_path()
+        .map(Some)
+        .map_err(|e| AppError::new(format!("invalid folder: {e}")))
+}
+
+/// iOS/iPadOS: the dialog plugin has no folder picker there. Vaults live in
+/// the app's own Documents folder (see `get_vaults_root`) until a document-
+/// picker flow exists (UIDocumentPickerViewController + a security-scoped
+/// bookmark).
+#[cfg(mobile)]
+fn blocking_pick_folder(_app: &AppHandle) -> AppResult<Option<PathBuf>> {
+    Err(AppError::new("Choosing a folder is not available on iPad yet."))
 }
 
 /// Open a vault by absolute path (used for auto-reopen of the last vault).
@@ -633,12 +650,15 @@ pub async fn remove_recent_vault(
 /// to the log only.
 pub const TRASH_FAILED_MESSAGE: &str = "Couldn't move the folder to the Trash. Close any Finder dialog and try again, or delete the folder yourself.";
 
+#[cfg(desktop)]
 const TRASH_ATTEMPTS: u32 = 3;
+#[cfg(desktop)]
 const TRASH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// Run `primary` up to `attempts` times, `delay` apart, then `fallback` once.
 /// Returns the last error when everything failed. Pure so it can be tested
 /// without touching the real Trash.
+#[cfg_attr(mobile, allow(dead_code))]
 fn trash_with_retry(
     attempts: u32,
     delay: std::time::Duration,
@@ -688,13 +708,17 @@ fn move_dir_to_trash(dir: &Path) -> AppResult<()> {
             Some(&mut finder),
         )
     };
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(desktop, not(target_os = "macos")))]
     let result = trash_with_retry(
         TRASH_ATTEMPTS,
         TRASH_RETRY_DELAY,
         || trash::delete(dir).map_err(|e| e.to_string()),
         None,
     );
+    // iOS/iPadOS: no OS Trash the `trash` crate can drive (it is a desktop-only
+    // dependency). Refuse rather than hard-delete the only copy of a vault.
+    #[cfg(mobile)]
+    let result: Result<(), String> = Err("moving a folder to the Trash is not supported on this platform".into());
     result.map_err(|e| {
         log::warn!("could not move {} to trash: {e}", dir.display());
         AppError::new(TRASH_FAILED_MESSAGE)
@@ -1118,12 +1142,9 @@ pub async fn pick_vaults_root(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<Option<String>> {
-    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+    let Some(path) = blocking_pick_folder(&app)? else {
         return Ok(None);
     };
-    let path = folder
-        .into_path()
-        .map_err(|e| AppError::new(format!("invalid folder: {e}")))?;
     Ok(Some(choose_root(&app, &state, &path)?.to_string_lossy().to_string()))
 }
 
@@ -1132,12 +1153,9 @@ pub async fn pick_vaults_root(
 /// is then opened via `open_vault_in_root`.
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle) -> AppResult<Option<String>> {
-    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+    let Some(path) = blocking_pick_folder(&app)? else {
         return Ok(None);
     };
-    let path = folder
-        .into_path()
-        .map_err(|e| AppError::new(format!("invalid folder: {e}")))?;
     Ok(Some(path.to_string_lossy().to_string()))
 }
 

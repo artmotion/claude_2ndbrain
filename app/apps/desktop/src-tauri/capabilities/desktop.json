@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "Desktop-only plugin permissions. The updater plugin is not built for iOS/iPadOS (Cargo.toml gates it), so its permissions only validate on desktop targets.",
+  "windows": ["main"],
+  "platforms": ["macOS", "windows", "linux"],
+  "permissions": ["updater:default"]
+}

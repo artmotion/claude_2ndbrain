@@ -154,6 +154,8 @@ pub fn google_oauth_return_to_app(app: tauri::AppHandle) {
         return;
     };
 
+    // Desktop only: Tauri has no unminimize on iOS/iPadOS.
+    #[cfg(desktop)]
     if let Err(e) = window.unminimize() {
         log::warn!("[oauth] could not unminimize the app after sign-in: {e}");
     }
