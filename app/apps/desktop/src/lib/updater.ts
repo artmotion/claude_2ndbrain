@@ -28,6 +28,7 @@ import { useSyncExternalStore } from "react";
 import { clearRelaunchFocus, recordRelaunchFocus } from "./backgroundRelaunch";
 import { bridgeManager } from "./bridge";
 import { APP_SCHEME } from "./deepLinkScheme";
+import { isIos } from "./platform";
 import { waitForQuietMoment } from "./quietMoment";
 
 export type UpdateState =
@@ -204,6 +205,12 @@ export function subscribeUpdateState(listener: () => void): () => void {
 export async function checkForUpdate(
   options: { timeoutMs?: number } = {},
 ): Promise<boolean> {
+  // The iOS build has no updater plugin: a new version arrives as a new
+  // sideloaded build, never through this check.
+  if (isIos()) {
+    setState({ phase: "error", message: "On iPad, update by installing the latest build." });
+    return false;
+  }
   try {
     setState({ phase: "checking" });
     const update = await check(

@@ -7493,6 +7493,11 @@ export class SyncManager implements InboundHost {
       presenceUser(this.presence.id, this.presence.name, this.status),
     );
   }
+
+  /** The app returned to the foreground: reconnect the vault channel now. */
+  wakeFromBackground(): void {
+    this.vaultEngine?.wake();
+  }
 }
 
 /** Process-wide singleton (parallels `bridgeManager`). */

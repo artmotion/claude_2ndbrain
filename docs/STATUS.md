@@ -19,12 +19,14 @@ tags: [secondbrain, status, roadmap]
   port at `/sync` (single-port topology), and the repo ships a Dockerfile, a Docker Compose bundle (`deploy/compose/`,
   migrations run before the server starts) and [[DEPLOY]]. This fork has no hosted
   backend: the owner self-hosts it. Windows builds come from `.github/workflows/windows-build.yml`.
-- **iPad (Phase 0):** 🟡 2026-10-13. The Tauri crate builds for iOS; `.github/workflows/ios-build.yml`
-  (macOS runner, no Apple account) builds for the iPad simulator, launches the app and screenshots it,
-  and builds an unsigned `.ipa` for sideloading (Sideloadly + free Apple ID). Assets go to the `ios-dev`
-  prerelease and the run's artifacts. Desktop-only commands have iOS stand-ins in
-  `src-tauri/src/mobile/`. Next: Phase 1 (sign-in + sync on iPad, app-container vaults,
-  background/foreground handling, touch layout).
+- **iPad:** 🟡 2026-10-13. Phases 0–4 of the iPad plan are in; see [[IOS]]. The crate builds for
+  iOS and `.github/workflows/ios-build.yml` (macOS runner, no Apple account) launches it in an iPad
+  simulator and publishes an unsigned `.ipa` to the `ios-dev` prerelease for sideloading. Phase 1:
+  app-container vaults ("Open existing" lists them), iPad detection (`lib/platform.ts`, desktop UA +
+  touch), flush-on-background / reconnect-on-foreground (`lib/appLifecycle.ts`), updater off.
+  Phase 2: long-press context menus (`lib/touchContextMenu.ts`) and touch sizing (`styles/ios.css`).
+  Phase 3: bootstrap pages hold 100 docs and download newest-edited first. Not yet verified on a
+  real iPad against a live server; no folder picker for external locations.
 - **Billing:** ⬜ Removed in this fork (2026-10-13). There is no hosted service, so every server
   behaves as the old billing-disabled self-host: no plans, seats, quotas or 402 refusals; the
   Assistant and standalone-file sync are always available. Migration 056 drops the billing tables.

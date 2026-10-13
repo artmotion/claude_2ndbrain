@@ -1070,6 +1070,22 @@ export class VaultSyncEngine {
     this.scheduleReconnect();
   }
 
+  /**
+   * The app came back to the foreground. iOS suspends a backgrounded app and
+   * its sockets die with it, so the channel may be sitting in a backoff wait
+   * of up to {@link maxMs}; skip the rest of it and connect now. A live,
+   * refused or stopped channel, or one whose connect is already in flight
+   * (no timer pending), is left alone.
+   */
+  wake(): void {
+    if (this.stopped || this.status === "synced" || this.status === "no-access") return;
+    if (!this.reconnectTimer) return;
+    this.clearTimeoutImpl(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.attempt = 0;
+    this.connect();
+  }
+
   private scheduleReconnect(): void {
     if (this.stopped || this.reconnectTimer) return;
     // Exponential backoff with 50–100% jitter (spec 05 §4 anti-stampede).

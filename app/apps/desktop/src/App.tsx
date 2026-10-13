@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import "./App.css";
+import "./styles/ios.css";
 import { AccountMenu } from "./components/AccountMenu";
 import { BackendBehindNotice } from "./components/BackendBehindNotice";
 import { AsyncButton } from "./components/AsyncButton";
@@ -51,6 +52,9 @@ import { LOCATE_ORIGINAL, autoRestoredNoticeText } from "./lib/vault/missingFold
 import * as perf from "./lib/perf";
 import { implicatedFolders, refreshWorthy } from "./lib/tree/lazyTree";
 import { DISK_DELETE_GRACE_MS, syncManager } from "./lib/sync/docSession";
+import { installAppLifecycle } from "./lib/appLifecycle";
+import { isIos } from "./lib/platform";
+import { installLongPressContextMenu } from "./lib/touchContextMenu";
 import {
   OPEN_NOTE_REMOVED_SLACK_MS,
   scheduleOpenNoteRemovedCheck,
@@ -1031,6 +1035,20 @@ function PromptedAuthDialog() {
 export default function App() {
   // Invitations to other vaults appear live, not on the next reload.
   useLiveInvitations();
+  // Backgrounded (iPad suspends the app): save the pending edit now; back in
+  // the foreground: reconnect sync without waiting out the backoff.
+  useEffect(
+    () =>
+      installAppLifecycle({
+        flush: async () => {
+          await bridgeManager.currentBridge()?.flushEgest();
+        },
+        wake: () => syncManager.wakeFromBackground(),
+      }),
+    [],
+  );
+  // iPad: a long press opens the same context menus a right-click does.
+  useEffect(() => (isIos() ? installLongPressContextMenu() : undefined), []);
   const vault = useStore((s) => s.vault);
   const openNote = useStore((s) => s.openNote);
   const activeVirtual = useStore(

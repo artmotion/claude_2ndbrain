@@ -1,0 +1,55 @@
+/* iPad / iPhone (the Tauri iOS build). `data-platform="ios"` is stamped on
+   <html> by lib/platform.ts; `pointer: coarse` also covers touch laptops. */
+
+[data-platform="ios"] body {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  /* No double-tap zoom on the app chrome; pinch stays with the editor. */
+  touch-action: manipulation;
+  overscroll-behavior: none;
+}
+
+/* A long press opens our own context menu (lib/touchContextMenu.ts), so the
+   system callout and selection loupe must not compete with it on chrome. */
+[data-platform="ios"] .tree-row,
+[data-platform="ios"] .tab,
+[data-platform="ios"] .recent-card,
+[data-platform="ios"] .version-row,
+[data-platform="ios"] .backlink {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (pointer: coarse) {
+  /* Finger-sized targets (Apple's HIG asks for 44pt; rows stay a bit denser). */
+  .tree-row {
+    min-height: 40px;
+  }
+  .tab {
+    min-height: 38px;
+  }
+  .icon-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* Hover-only affordances are always visible: there is no hover on touch. */
+  .recent-card .recent-remove,
+  .tree-row .tree-hint,
+  .version-row .version-revert,
+  .tab .tab-close,
+  .backlink .backlink-go {
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+  }
+}
+
+/* "Open existing" on iPad: the vault folders in the app's Documents folder. */
+.ios-vault-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+}

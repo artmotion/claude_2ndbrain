@@ -9,6 +9,7 @@ import {
   useStore,
 } from "../store";
 import { Wordmark } from "./Logo";
+import { isIos } from "../lib/platform";
 import { Spinner } from "./Spinner";
 import { useLocalFolderClasses } from "./useVaultLists";
 import { filterRecentsForWelcome } from "../lib/vault/vaultList";
@@ -234,8 +235,35 @@ export function VaultPicker() {
     }
   }
 
+  // iPad has no folder picker the app can use yet: vaults live in the app's
+  // own Documents folder (visible in the Files app), so "Open existing" lists
+  // the folders there instead.
+  const ios = isIos();
+  const [iosDirs, setIosDirs] = useState<string[] | null>(null);
+  async function openIosDir(path: string) {
+    setIosDirs(null);
+    setBusy(true);
+    setError(null);
+    try {
+      await useStore.getState().openLocalVault(path);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // "Open existing": native folder picker → open the chosen vault.
   async function pickExisting() {
+    if (ios) {
+      setError(null);
+      try {
+        setIosDirs(await ipc.listVaultsRootDirs());
+      } catch (e) {
+        setError(String(e));
+      }
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -814,7 +842,7 @@ export function VaultPicker() {
             }
           >
             A vault is any folder of <code>.md</code> files.{" "}
-            <button
+            {!ios && <button
               type="button"
               className="linkish"
               disabled={busy}
@@ -822,7 +850,7 @@ export function VaultPicker() {
               onClick={() => setPathOpen((v) => !v)}
             >
               Open by path
-            </button>
+            </button>}
           </motion.p>
         )}
 
@@ -882,6 +910,37 @@ export function VaultPicker() {
       {/* "Open by path" — the escape hatch for what the native folder dialog
           can't select (a drive root as the vault, #75). A modal like "Show all":
           revealing a form in place reflowed the centered card. */}
+      {iosDirs && (
+        <div className="modal-backdrop" onClick={() => setIosDirs(null)}>
+          <div className="modal open-by-path-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <span>Open a vault on this iPad</span>
+              <button className="icon-btn" aria-label="Close" onClick={() => setIosDirs(null)}>
+                ✕
+              </button>
+            </div>
+            {iosDirs.length === 0 ? (
+              <p className="field-hint">
+                No vault folders yet. Create one with New vault, or sign in to sync one
+                from your server.
+              </p>
+            ) : (
+              <div className="ios-vault-list">
+                {iosDirs.map((dir) => (
+                  <button
+                    key={dir}
+                    type="button"
+                    className="ghost-pill lg"
+                    onClick={() => void openIosDir(dir)}
+                  >
+                    {dir.split(/[\\/]/).filter(Boolean).pop() ?? dir}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {pathOpen && (
         <div className="modal-backdrop" onClick={closePathOpen}>
           <div

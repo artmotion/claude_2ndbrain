@@ -56,6 +56,11 @@ Three pieces; this open-source repo holds the first two.
   `Info.ios.plist`. Desktop-only commands keep their names on iOS through stand-ins in
   `src-tauri/src/mobile/` (`#[cfg(mobile)] #[path]`); desktop-only capabilities live in
   `capabilities/desktop.json`. Windows installers come from `.github/workflows/windows-build.yml`.
+  On iPad the UI stamps `data-platform="ios"` (`lib/platform.ts`: WKWebView reports a Mac UA, so
+  touch points decide), flushes the open note's egest when hidden and calls
+  `syncManager.wakeFromBackground()` (→ `VaultSyncEngine.wake()`, skip the backoff) when visible
+  (`lib/appLifecycle.ts`), turns a 500 ms still press into a synthetic `contextmenu` outside the
+  editor (`lib/touchContextMenu.ts`), and loads `styles/ios.css`. Guide: `docs/IOS.md`.
 - **Origin** — 2ndBrain is a personal fork of [Baalda](https://github.com/naveedharri/baalda)
   (Apache-2.0). Upstream's managed service, website, trademark policy and enterprise code are
   not part of this fork.
@@ -765,7 +770,9 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   ≤`BATCH_MAX_DECODED_BYTES` (4 MiB) decoded, a single item up to `MAX_NOTE_MB` (400
   `batch_too_large`). `registry-changed` is published AFTER the apply, so a receiver's pull finds
   content, not a placeholder.
-- `POST /vaults/:vaultId/bootstrap` takes `only: string[]` (≤`BATCH_MAX_DOCS`, 400
+- Bootstrap sessions number their docs newest-edited first (`COALESCE(last_edited_at, updated_at) DESC`,
+  path order breaking ties) and pages hold at most `BOOTSTRAP_MAX_PAGE_DOCS` (100) docs.
+  `POST /vaults/:vaultId/bootstrap` takes `only: string[]` (≤`BATCH_MAX_DOCS`, 400
   `batch_too_large`): the session covers exactly those ids, unreadable or unknown ones silently
   dropped, never a 403. It is the desktop's HTTP pull-then-merge.
 - **One-step file upload** (`files-with-bytes`, `routes/blobs.ts`, migration 048
