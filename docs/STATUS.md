@@ -275,7 +275,7 @@ Six changes that together make a vault something a team can actually govern.
   former Pro gate went with billing, 2026-10-13).
 - Permission-filtered candidates, explicit excerpt-sharing consent, exact-change
   previews, revision-guarded Yjs writes, and guarded short-lived Undo.
-- Commercial engine under `ee/`; open-core builds remain independent. Provider
+- Ships under Apache-2.0 in the server package. Provider
   credentials are required for live use. See [setup and preview
   limits](HOUSEKEEPER.md). Real-provider quality evaluation remains outstanding.
 
@@ -301,8 +301,7 @@ copying an access request. Previews recheck scope, findings and rename authority
 Oversized-note backups do not split content or resolve size limits; permission
 requests do not grant access. These distinctions are explicit in the action UI.
 
-The Assistant now ships under Apache-2.0 in the standard server package rather than
-`ee/`; everyone has access with their own model key. (The note cap and plan
+The Assistant ships under Apache-2.0 in the standard server package; everyone has access with their own model key. (The note cap and plan
 gate described here earlier were removed with billing, 2026-10-13.)
 Sign-in uses a body portal. The sidebar alone says AI (Beta), with an accented
 sparkle; provider settings use a warm amber card and a key-ready indicator.

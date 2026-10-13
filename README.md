@@ -223,7 +223,3 @@ and run the code; please give your version its own name.
 Contributions are welcome under the same license, with **no CLA required**. See
 [CONTRIBUTING.md](CONTRIBUTING.md), and report vulnerabilities via
 [SECURITY.md](SECURITY.md).
-
-> One exception: the [`ee/`](ee/) directory holds future commercial-only
-> features under a separate [Enterprise License](ee/LICENSE). Everything else,
-> the entire core, is Apache-2.0.

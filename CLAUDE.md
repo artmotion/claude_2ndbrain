@@ -57,13 +57,12 @@ Three pieces; this open-source repo holds the first two.
   `src-tauri/src/mobile/` (`#[cfg(mobile)] #[path]`); desktop-only capabilities live in
   `capabilities/desktop.json`. Windows installers come from `.github/workflows/windows-build.yml`.
 - **Origin** — 2ndBrain is a personal fork of [Baalda](https://github.com/naveedharri/baalda)
-  (Apache-2.0). Upstream's managed service, website, trademark policy and `ee/` directory are not
-  part of this fork.
+  (Apache-2.0). Upstream's managed service, website, trademark policy and enterprise code are
+  not part of this fork.
 
-**Boundary rule:** this repo is public. Never commit anything about how *our* managed instance
-is operated — hosting/provider, deploy config for our instance, domains/DNS, dashboards,
-billing, or secrets. Managed-service work happens in private repos; commercial-only *features*
-(if source-available) go under `ee/`.
+**Boundary rule:** this repo is public. Never commit secrets, `.env` files or the owner's private
+server configuration (domains, credentials). Everything in the repo is Apache-2.0; there are no
+enterprise or commercial-only features.
 
 ## The one idea to hold in your head
 

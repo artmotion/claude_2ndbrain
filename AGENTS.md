@@ -36,7 +36,6 @@ on the same notes in real time.
   permissions, blobs, and MCP. Start at `index.ts` / `http/app.ts`.
 - Server `src/permissions/`: shared authorization rules; `src/registry/tree-ops.ts`:
   structural operations shared by HTTP and MCP.
-- `ee/`: separately licensed commercial features. The website is outside this repo.
 
 ## Invariants to preserve
 
@@ -128,5 +127,4 @@ header specified in `CONTRIBUTING.md`.
   immediately to installed apps. Follow `docs/RELEASE.md` for promotion and the
   coordinated four-file version bump. Do not treat pushes/tags as local checks.
 - This is a public repository. Never commit credentials, `.env` files, or private
-  managed-service operations/configuration. Keep managed-instance work in its
-  private repositories and respect the separate `ee/` license.
+  server configuration. Everything is Apache-2.0; there is no enterprise code.
