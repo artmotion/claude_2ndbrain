@@ -32,13 +32,13 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: app/package.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -69,18 +69,16 @@ jobs:
           cp apps/desktop/src-tauri/target/release/bundle/msi/*.msi ../dist-win/
           ls -l ../dist-win
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: 2ndBrain-windows-${{ github.sha }}
           path: dist-win/*
           if-no-files-found: error
 
       # Needs "Read and write permissions" for GITHUB_TOKEN (repository
-      # Settings → Actions → General → Workflow permissions). Without it the
-      # installers are still available as the workflow artifact above.
+      # Settings → Actions → General → Workflow permissions).
       - name: Publish to the rolling windows-dev prerelease
-        continue-on-error: true
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: windows-dev
           name: 2ndBrain Windows dev build
