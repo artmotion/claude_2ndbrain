@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/http/app.js";
 import { testAppDeps } from "./helpers/app.js";
 import { pool } from "../src/db/pool.js";
@@ -99,9 +99,6 @@ describe("one-step file upload (files-with-bytes)", () => {
   beforeEach(async () => {
     await resetDb();
   });
-  afterEach(() => {
-    delete process.env.POLAR_ACCESS_TOKEN;
-  });
 
   it("creates the files row only at complete, in the same step that publishes the bytes", async () => {
     const { owner, vault } = await setup("onestep");
@@ -156,17 +153,6 @@ describe("one-step file upload (files-with-bytes)", () => {
     expect(body.file).toMatchObject({ id: docId, path: "logo.png", status: "created" });
     expect(body.blob?.docId).toBe(docId);
     expect(await fileRows(vault)).toEqual([{ id: docId, path: "logo.png", folder_id: null }]);
-  });
-
-  it("a Free vault is refused at intent and nothing is left behind", async () => {
-    const { owner, vault } = await setup("onestep-free");
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
-
-    const res = await intent(owner, vault, pngIntent(randomUUID(), "logo.png"));
-    expect(res.status).toBe(402);
-    expect(((await res.json()) as IntentBody).code).toBe("attachment_sync_requires_pro");
-    expect(await fileRows(vault)).toEqual([]);
-    expect(await blobRows(vault)).toEqual([]);
   });
 
   it("a caller who may not create in the folder is refused at intent with nothing written", async () => {

@@ -138,8 +138,6 @@ export function kindLabel(kind: HealthIssueKind): string {
       return "Upload failed";
     case "register-failed":
       return "Not registered";
-    case "limit":
-      return "Plan limit";
     case "unregistered":
       return "Not uploaded yet";
     case "no-access":

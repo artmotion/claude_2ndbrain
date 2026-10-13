@@ -2,16 +2,10 @@
    2026-10-07), so the one list of them lives here rather than in Vault
    Settings: the synced vaults this account is a member of, the local folders
    this app profile has opened, and where new vault folders go. Moved verbatim
-   from the old Vault Settings → Vaults tab; the people/notes counts come from
-   the account's billing usage when the server bills per seat. Rows carry no
-   plan pill (the plan is the account's, said in Plan & Billing); only a
-   lapsed account's vaults get a "Read-only" pill, since that changes the row. */
+   from the old Vault Settings → Vaults tab. */
 import { type ReactNode, useEffect, useState } from "react";
-import { ApiError, type BillingUsage, type MyBillingAccount, type OrgBilling } from "../lib/api";
 import { toast } from "../lib/toast";
 import { folderErrorText } from "../lib/vault/folderErrors";
-import { authManager } from "../lib/auth/authManager";
-import { classifyLimitError, type LimitKind, limitFromError } from "../lib/billing";
 import * as ipc from "../lib/ipc";
 import { readOrgVaults, useStore } from "../store";
 import { AsyncButton } from "./AsyncButton";
@@ -34,25 +28,18 @@ import {
   vaultSlugLabel,
   writeAccountVaultsView,
 } from "../lib/accountVaultsView";
-import { LimitNudge } from "./LimitNudge";
-import { UpgradeDialog } from "./UpgradeDialog";
 import { useLocalFolderClasses, useLocalVaults } from "./useVaultLists";
 import { hiddenForeignFootnote, visibleFolders } from "../lib/vault/vaultList";
 import { formatDate, UnsyncConfirmDialog } from "./VaultSettingsDialog";
 import { AccountVaultPage } from "./AccountVaultPage";
 import {
   vaultPageDetails,
-  vaultPagePlanLine,
   vaultPageRole,
   vaultSettingsAction,
 } from "../lib/accountVaultPage";
 
 const CURRENT_LINK_TIP =
   'The active vault is also linked at "current", so tools like Claude Desktop can point at one fixed path.';
-
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 /**
  * Vaults: switch between vaults, create/join, and manage where their
@@ -74,8 +61,6 @@ export function AccountVaultsTab() {
   // The open vault's folder is gone (#228): its row says so instead of
   // "Current" and offers the banner's recovery actions.
   const rootMissing = useStore((s) => s.structureNotice.rootMissing);
-  const billingEnabled = useStore((s) => s.billingConfig?.enabled === true);
-  const teamBilling = useStore((s) => s.billingConfig?.model === "team");
   // Bumped after a local remove/delete so the recents list re-fetches.
   const [localsNonce, setLocalsNonce] = useState(0);
   const locals = useLocalVaults(localsNonce);
@@ -97,12 +82,6 @@ export function AccountVaultsTab() {
   const [confirmDelete, setConfirmDelete] = useState<{ orgId: string; name: string } | null>(
     null,
   );
-  // A vault that is actually PAYING, whose deletion needs the full dialog
-  // instead: the two-click row has nowhere to say what happens to the money
-  // (#111). Its billing snapshot rides along so the copy can name the date.
-  const [subDelete, setSubDelete] = useState<
-    { orgId: string; name: string; billing: OrgBilling } | null
-  >(null);
   // The local vault whose folder deletion is awaiting the standard confirm dialog.
   const [confirmDeleteLocal, setConfirmDeleteLocal] = useState<
     { path: string; name: string } | null
@@ -123,45 +102,6 @@ export function AccountVaultsTab() {
   const [view, setView] = useState<AccountVaultsView>(readAccountVaultsView);
   // The vault whose page is open (a card was clicked); null = the list.
   const [pageOrgId, setPageOrgId] = useState<string | null>(null);
-  // Free-plan vault-cap hit while creating — shows an upgrade nudge instead.
-  const [limitNudge, setLimitNudge] = useState<{ kind: LimitKind; limit: number | null } | null>(
-    null,
-  );
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
-  // Team-model billing: the read-only pill and per-vault counts. Loaded once; a
-  // failure (or billing off) just renders the rows without them.
-  const billingConfig = useStore((s) => s.billingConfig);
-  const [billing, setBilling] = useState<
-    { account: MyBillingAccount; usage: BillingUsage } | null
-  >(null);
-  // True until the usage answers (or fails): the vault page shows skeletons.
-  const [billingLoading, setBillingLoading] = useState(false);
-  const usageShown = !!session && billingConfig?.enabled === true && billingConfig.model === "team";
-  useEffect(() => {
-    if (!session || !billingConfig?.enabled || billingConfig.model !== "team") {
-      setBilling(null);
-      setBillingLoading(false);
-      return;
-    }
-    let live = true;
-    setBillingLoading(true);
-    Promise.all([authManager.api.getBillingAccount(), authManager.api.getBillingUsage()])
-      .then(([account, usage]) => { if (live) setBilling({ account, usage }); })
-      .catch(() => { if (live) setBilling(null); })
-      .finally(() => { if (live) setBillingLoading(false); });
-    return () => { live = false; };
-  }, [session, billingConfig?.enabled, billingConfig?.model]);
-  const usageFor = (orgId: string) =>
-    billing?.usage.vaults.find((v) => v.orgId === orgId) ?? null;
-  // The account's plan applies to every row, so it is not repeated per row;
-  // only a lapsed account (sync read-only for its vaults) earns a pill.
-  const accountLapsed = !!billing?.account.lapsed;
-  const freeVaultLimit =
-    billing && billing.account.plan === "free"
-      ? (billing.usage.limits.vaults ?? billing.account.limits.vaults)
-      : null;
-  const baseFreeVaults = billingConfig?.free?.syncedVaults ?? null;
-
   useEffect(() => {
     let cancelled = false;
     ipc
@@ -242,35 +182,12 @@ export function AccountVaultsTab() {
   };
 
   /**
-   * Ask before deleting. A vault that is actually paying gets the full
-   * ConfirmDialog, because "Delete everything?" cannot say the one thing its
-   * owner needs to know: the subscription stops at the END of the current
-   * period, and until then it can be moved to another vault (#111). Every
-   * other vault gets the plain ConfirmDialog below; nothing confirms inline,
-   * so a card never changes shape while a confirm is pending.
-   *
-   * A billing lookup that fails is treated as free — an unreachable billing
-   * endpoint must not block a delete the user is entitled to make.
+   * Ask before deleting, always through the ConfirmDialog below; nothing
+   * confirms inline, so a card never changes shape while a confirm is pending.
    */
   const askDelete = async (orgId: string, name: string) => {
     setActionError(null);
-    // Team model: the subscription is the owner's account, and deleting a
-    // vault does not touch it, so there is no subscription to warn about.
-    if (!billingEnabled || teamBilling) {
-      setConfirmDelete({ orgId, name });
-      return;
-    }
-    let billing: OrgBilling | null = null;
-    try {
-      billing = await authManager.api.getOrgBilling(orgId);
-    } catch {
-      billing = null;
-    }
-    if (billing && (billing.status === "active" || billing.status === "past_due")) {
-      setSubDelete({ orgId, name, billing });
-    } else {
-      setConfirmDelete({ orgId, name });
-    }
+    setConfirmDelete({ orgId, name });
   };
 
   // Permanently delete a vault everywhere (owner only, confirmed above).
@@ -279,32 +196,16 @@ export function AccountVaultsTab() {
     setBusy(true);
     setActionError(null);
     try {
-      const result = await useStore.getState().deleteRemoteVault(orgId);
+      await useStore.getState().deleteRemoteVault(orgId);
       setBound(readOrgVaults());
       setConfirmDelete(null);
-      setSubDelete(null);
-      if (result.subscription && !teamBilling) {
-        // Neutral, not success: the vault is gone, but the user is still paying
-        // for the rest of the period and that time is recoverable.
-        const ends = result.subscription.currentPeriodEnd;
-        toast(
-          ends
-            ? `Vault deleted. Pro ends on ${formatDate(ends)} — move it from Billing if you want to keep it.`
-            : "Vault deleted. Pro ends when the current period does — move it from Billing if you want to keep it.",
-          "neutral",
-        );
-      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      // Covers the 502 `subscription_cancel_failed` case: the server's message
-      // rides `ApiError.message`, and NOTHING was deleted. The dialog stays
-      // open (only success clears it) so the error has somewhere to show.
+      // NOTHING was deleted. The dialog stays open (only success clears it)
+      // so the error has somewhere to show.
       setActionError(message);
       // Destructive path: a failure here must never look like a success (#85).
-      // The cancel-failed message is already a full sentence (#300).
-      const cancelFailed =
-        e instanceof ApiError && (e.body as { error?: unknown } | undefined)?.error === "subscription_cancel_failed";
-      toast(cancelFailed ? message : `Couldn't delete the vault — ${message}`, "error");
+      toast(`Couldn't delete the vault — ${message}`, "error");
     } finally {
       setBusy(false);
     }
@@ -387,18 +288,14 @@ export function AccountVaultsTab() {
     if (!orgName.trim()) return;
     setBusy(true);
     setActionError(null);
-    setLimitNudge(null);
     try {
       await useStore.getState().createOrganization(orgName.trim());
       setOrgName("");
       setCreating(false);
       setBound(readOrgVaults());
     } catch (e) {
-      // A 402 vault-cap rejection becomes an upgrade nudge; anything else is
-      // a real error (previously swallowed silently — that was the create bug).
-      const kind = classifyLimitError(e);
-      if (kind) setLimitNudge({ kind, limit: limitFromError(e) });
-      else setActionError(e instanceof Error ? e.message : String(e));
+      // A real error (previously swallowed silently — that was the create bug).
+      setActionError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -572,7 +469,7 @@ export function AccountVaultsTab() {
 
   // A confirm dialog that is open shows the action's error itself; the page's
   // banner would only repeat it behind the dialog.
-  const errorInDialog = !!(confirmDelete || confirmDeleteLocal || confirmLeave || subDelete);
+  const errorInDialog = !!(confirmDelete || confirmDeleteLocal || confirmLeave);
 
   const chooseView = (next: AccountVaultsView) => {
     setView(next);
@@ -606,17 +503,10 @@ export function AccountVaultsTab() {
   const pageOrg = session && pageOrgId ? organizations.find((o) => o.id === pageOrgId) ?? null : null;
   const renderPage = (o: (typeof organizations)[number]) => {
     const isActive = isOpenOrg(o.id);
-    const usage = usageFor(o.id);
-    const onMyAccount = !!usage;
     const activeMembers = o.id === activeOrgId ? members : [];
     const role = vaultPageRole({
       activeRole: activeMembers.find((m) => m.userId === session?.user.id)?.role ?? null,
-      onMyAccount,
     });
-    const ownerName = activeMembers.find((m) => m.role === "owner")?.user?.name || null;
-    const planLine = usageShown
-      ? vaultPagePlanLine({ onMyAccount, accountPlan: billing?.account.plan ?? null, ownerName })
-      : null;
     const settingsAction = vaultSettingsAction({ isOpen: isActive, boundPath: bound[o.id] ?? null });
     return (
       <AccountVaultPage
@@ -624,14 +514,9 @@ export function AccountVaultsTab() {
         name={o.name}
         slug={vaultSlugLabel(o)}
         isCurrent={isActive}
-        lapsed={!!usage && accountLapsed}
         busy={busy}
-        showStats={usageShown}
-        usage={usage}
-        usageLoading={billingLoading}
         details={vaultPageDetails({
           role,
-          planLine,
           folderPath: bound[o.id] ?? null,
           createdAt: o.createdAt,
           formatDate,
@@ -650,8 +535,7 @@ export function AccountVaultsTab() {
         settingsAction={settingsAction}
         onSwitch={() => switchTo(o.id)}
         onOpenSettings={async () => {
-          // The Plan tab's invited-chip rule: switch first when needed, then
-          // Vault Settings → Members and access.
+          // Switch first when needed, then Vault Settings → Members and access.
           if (settingsAction === "unavailable") return;
           if (settingsAction === "switch-then-open") {
             await switchTo(o.id);
@@ -718,7 +602,7 @@ export function AccountVaultsTab() {
         <div className="vault-grid">
           {ordered.map((o) => {
             const isActive = isOpenOrg(o.id);
-            const labels = vaultCardLabels(o, usageFor(o.id), {
+            const labels = vaultCardLabels(o, null, {
               folderMissing: isActive && rootMissing,
             });
             return (
@@ -764,9 +648,6 @@ export function AccountVaultsTab() {
                   onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => e.stopPropagation()}
                 >
-                  {usageFor(o.id) && accountLapsed && (
-                    <span className="billing-status canceled">Read-only</span>
-                  )}
                   {isActive && rootMissing ? (
                     <CardFolderMissingChip
                       synced={syncEnabled}
@@ -815,18 +696,7 @@ export function AccountVaultsTab() {
                     {folderSuffix}
                   </span>
                 )}
-                {usageFor(o.id) && (
-                  <span className="muted vault-folder">
-                    {" · "}
-                    {plural(usageFor(o.id)!.people, "person", "people")}
-                    {" · "}
-                    {plural(usageFor(o.id)!.notes, "note", "notes")}
-                  </span>
-                )}
               </span>
-              {usageFor(o.id) && accountLapsed && (
-                <span className="billing-status canceled">Read-only</span>
-              )}
               <span className="vault-row-actions">
                 {syncedStatus(o, isActive)}
                 <RowActionsMenu
@@ -839,15 +709,6 @@ export function AccountVaultsTab() {
           );
         })}
       </ul>
-      )}
-      {freeVaultLimit != null && (
-        <p className="muted">
-          Free includes {plural(freeVaultLimit, "synced vault", "synced vaults")} on this account
-          {baseFreeVaults != null && freeVaultLimit > baseFreeVaults
-            ? " (includes vaults you had before)"
-            : ""}
-          .
-        </p>
       )}
       {(creating || joining) && (
         <div className="vault-tab-actions">
@@ -925,13 +786,6 @@ export function AccountVaultsTab() {
       )}
       {joinError && <div className="auth-error">{joinError}</div>}
       {actionError && !errorInDialog && <div className="auth-error">{actionError}</div>}
-      {limitNudge && (
-        <LimitNudge
-          kind={limitNudge.kind}
-          limit={limitNudge.limit}
-          onUpgrade={() => setUpgradeOpen(true)}
-        />
-      )}
         </>
       )}
 
@@ -1107,7 +961,6 @@ export function AccountVaultsTab() {
       )}
       {reset.dialog}
 
-      {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
 
       {confirmLeave && (
         <ConfirmDialog
@@ -1178,35 +1031,6 @@ export function AccountVaultsTab() {
         </ConfirmDialog>
       )}
 
-      {subDelete && (
-        <ConfirmDialog
-          title={`Delete ${subDelete.name}?`}
-          confirmLabel="Delete vault"
-          onCancel={() => setSubDelete(null)}
-          onConfirm={() => deletePermanently(subDelete.orgId)}
-        >
-          <p>
-            This vault is on <strong>Pro</strong>
-            {subDelete.billing.currentPeriodEnd
-              ? subDelete.billing.cancelAtPeriodEnd
-                ? `, ending ${formatDate(subDelete.billing.currentPeriodEnd)}`
-                : `, renewing ${formatDate(subDelete.billing.currentPeriodEnd)}`
-              : ""}
-            .
-          </p>
-          <p>
-            Deleting it stops the subscription at the end of the current period.
-            You won't be charged again, and until then you can move the
-            subscription to another vault from <strong>Billing</strong>.
-          </p>
-          <p>
-            Every note, folder and attachment in this vault is deleted for
-            everyone, and this device's folder moves to the Trash. That part
-            can't be undone.
-          </p>
-          {actionError && <div className="auth-error">{actionError}</div>}
-        </ConfirmDialog>
-      )}
     </>
   );
 }

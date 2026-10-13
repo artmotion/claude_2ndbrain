@@ -283,8 +283,7 @@ describe("open gate after a vault switch", () => {
 });
 
 // Vault Settings and Account Settings are both full-screen dialogs, and they
-// cross-link (Usage → "Open Plan & Billing", the bottom-left links, the Vaults
-// tab). Opening one must close the other in the same update, or the user has
+// cross-link (the bottom-left links, the Vaults tab). Opening one must close the other in the same update, or the user has
 // to close two stacked dialogs.
 describe("settings dialogs swap instead of stacking", () => {
   beforeEach(() => {
@@ -292,11 +291,11 @@ describe("settings dialogs swap instead of stacking", () => {
   });
 
   it("opening Account Settings closes Vault Settings and lands on the asked tab", () => {
-    useStore.getState().requestSettings("billing");
+    useStore.getState().requestSettings("members");
     expect(useStore.getState().settingsDialog).toBe("vault");
-    useStore.getState().requestAccountSettings("plan");
+    useStore.getState().requestAccountSettings("about");
     expect(useStore.getState().settingsDialog).toBe("account");
-    expect(useStore.getState().accountSettingsRequest?.tab).toBe("plan");
+    expect(useStore.getState().accountSettingsRequest?.tab).toBe("about");
   });
 
   it("opening Vault Settings closes Account Settings and lands on the asked tab", () => {
@@ -308,7 +307,7 @@ describe("settings dialogs swap instead of stacking", () => {
   });
 
   it("closing names its own dialog, so a stale close never shuts the other", () => {
-    useStore.getState().requestAccountSettings("plan");
+    useStore.getState().requestAccountSettings("about");
     useStore.getState().closeSettingsDialog("vault");
     expect(useStore.getState().settingsDialog).toBe("account");
     useStore.getState().closeSettingsDialog("account");
@@ -319,7 +318,7 @@ describe("settings dialogs swap instead of stacking", () => {
     useStore.getState().requestSettings("general");
     useStore.getState().dismissSettings();
     expect(useStore.getState().settingsDialog).toBeNull();
-    useStore.getState().requestAccountSettings("plan");
+    useStore.getState().requestAccountSettings("about");
     useStore.getState().dismissSettings();
     expect(useStore.getState().settingsDialog).toBe("account");
   });

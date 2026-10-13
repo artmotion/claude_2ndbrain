@@ -17,48 +17,6 @@ import {
   type ResolverCache,
 } from "./resolver.js";
 import { listReadableDocsInVault, vaultAccess } from "./vault-docs.js";
-import { isAccountReadOnly } from "../billing/lapse.js";
-
-/** The refusal a billing-lapsed vault answers every write with (HTTP 402),
- *  ahead of `no_write_access` / `root_frozen`. */
-export const ACCOUNT_READ_ONLY = { code: "account_read_only", status: 402 } as const;
-
-/**
- * Is this vault's billing account lapsed (account-wide read-only)? Route
- * handlers whose gate below answered `false` call this to turn the generic
- * 403 into `ACCOUNT_READ_ONLY` (402); the boolean gates already refuse.
- */
-export async function billingReadOnly(
-  organizationId: string,
-  db: Queryable = defaultPool,
-  cache?: ResolverCache,
-): Promise<boolean> {
-  return isAccountReadOnly(db, organizationId, cache);
-}
-
-/** User-facing text of a billing-lapse refusal (HTTP 402 and MCP alike). */
-export const ACCOUNT_READ_ONLY_MESSAGE =
-  "Your Team subscription ended, so this vault is read-only until it is resumed or reduced to the free limits.";
-
-/** The 402 body a refused write answers with while the account is lapsed. */
-export const ACCOUNT_READ_ONLY_BODY = {
-  error: "account_read_only",
-  code: "account_read_only",
-  message: ACCOUNT_READ_ONLY_MESSAGE,
-} as const;
-
-/** For a write a gate already refused: is the reason a billing lapse? Never
- *  throws (an unanswered check keeps the ordinary 403). */
-export async function refusedForBilling(organizationId: string | null | undefined): Promise<boolean> {
-  if (!organizationId) return false;
-  try {
-    return await billingReadOnly(organizationId);
-  } catch (err) {
-    console.error("[billing] read-only check failed:", err);
-    return false;
-  }
-}
-
 type Queryable = Pick<pg.Pool, "query">;
 
 /** Escape SQL LIKE metacharacters so a value is matched literally under
@@ -129,8 +87,6 @@ export async function canEditFolder(
         )
       ).rows[0];
   if (!row) return false;
-  // Billing lapse: nothing is writable, owners included (before every overlay).
-  if (await isAccountReadOnly(db, row.organization_id, cache)) return false;
 
   const role = cache
     ? await cache.role(db, row.organization_id, userId)
@@ -433,8 +389,6 @@ export async function vaultRootWritable(
   db: Queryable = defaultPool,
   cache?: ResolverCache,
 ): Promise<boolean> {
-  // Billing lapse caps everyone, ahead of the person's own level.
-  if (await isAccountReadOnly(db, organizationId, cache)) return false;
   // A person's own vault level decides for them, whatever the posture.
   const personal = cache
     ? await cache.personal(db, organizationId, userId)
@@ -589,7 +543,7 @@ export async function canWriteBlob(
   return canWriteAttachment(userId, vaultId, db);
 }
 
-export type DeleteRefusalCode = "delete_not_creator" | "folder_has_others_items" | "account_read_only";
+export type DeleteRefusalCode = "delete_not_creator" | "folder_has_others_items";
 export type DeleteGate = { ok: true } | { ok: false; code: DeleteRefusalCode };
 
 /** True when a Better Auth role string (possibly comma-joined) names owner or admin. */
@@ -623,8 +577,6 @@ export async function canDeleteItem(
     id: string;
   },
 ): Promise<DeleteGate> {
-  // Billing lapse: no deletes either, owners included (402 `account_read_only`).
-  if (await isAccountReadOnly(db, input.orgId)) return { ok: false, code: "account_read_only" };
   const role =
     input.orgRole !== undefined ? input.orgRole : await orgRole(input.orgId, input.userId, db);
   if (isManagerRole(role)) return { ok: true };

@@ -579,7 +579,7 @@ export interface RegistryFailure {
   /** Intended docId, when known (notes) — phase 3 keys its badge by this. */
   docId: string | null;
   reason: string;
-  /** Server error code when it carried one (`vault_limit_reached`, …). */
+  /** Server error code when it carried one (`no_write_access`, …). */
   code: string | null;
 }
 
@@ -610,7 +610,6 @@ export const HELD_TRANSIENT_MAX_MS = 60 * 60_000;
  */
 const BACKOFF_CREATE_CODES = new Set([
   "path_folder_mismatch",
-  "note_limit_reached",
   "doc_id_conflict",
   "invalid_state",
   "too_large",
@@ -742,8 +741,7 @@ function errorCode(err: unknown): string | null {
  * "Retrying this can never help."
  *
  * Any 4xx is the server telling us the REQUEST is wrong, not that it was
- * unlucky: 402 = a plan limit (`vault_limit_reached` / `member_limit_reached`),
- * 403 = no grant, 409 = this doc_id already belongs to another vault. Those must
+ * unlucky: 403 = no grant, 409 = this doc_id already belongs to another vault. Those must
  * be surfaced immediately rather than retried forever. 5xx and network failures
  * (no `ApiError` at all) are the retryable ones.
  */
@@ -1117,11 +1115,6 @@ export class VaultRegistry {
   private failed: RegistryFailure[] = [];
   /** See {@link lastPassDrift}. */
   private passDrift: { missingMapped: number; unmappedLocal: number } | null = null;
-  /** Set when the server refused on a plan limit: the rest of the run is
-   *  pointless (every further create would 402 too), so it stops. */
-  private limitReached: string | null = null;
-  /** Set by a 402 `account_read_only` (lapsed Team account) this run. */
-  private accountReadOnly = false;
 
   /**
    * The scope this registry's *contents* belong to: `serverVaultId` and the path
@@ -1381,8 +1374,6 @@ export class VaultRegistry {
     this.authoredBy = null;
     this.baselineVaultId = null;
     this.failed = [];
-    this.limitReached = null;
-    this.accountReadOnly = false;
     // Paths, so they belong to the vault we are leaving — and a stale entry would
     // suppress the next vault's first watcher event for the same relative path.
     this.materialized.clear();
@@ -2066,23 +2057,6 @@ export class VaultRegistry {
     }
   }
 
-  /** True once this run saw a 402 `account_read_only` (the Team account lapsed). */
-  isAccountReadOnly(): boolean {
-    return this.accountReadOnly;
-  }
-
-  /** The plan-limit code that stopped the run, if one did. */
-  limitCode(): string | null {
-    return (
-      this.limitReached ??
-      this.failed.find((f) => f.code === "note_limit_reached")?.code ??
-      // Held, so not re-asked (or re-reported) this pass, but still true.
-      ([...this.heldRefused.values()].some((e) => e.failure.code === "note_limit_reached")
-        ? "note_limit_reached"
-        : null)
-    );
-  }
-
   /**
    * Record something that could not be synced.
    *
@@ -2106,13 +2080,6 @@ export class VaultRegistry {
     // The id names a note deleted on the server. Reported ONCE (the path is
     // skipped from now on — see `deletedPaths`), with a reason that says the
     // file is safe and why it no longer syncs.
-    // The billing account lapsed: sync is read-only for the whole account.
-    // That is a state, not a broken item, so it never becomes a failure row;
-    // the run stops because every further write would get the same answer.
-    if (f.code === "account_read_only") {
-      this.accountReadOnly = true;
-      return "failed";
-    }
     if (f.code === "note_deleted" && f.kind === "note") {
       const firstTime = !this.deletedPaths.has(pathKey(f.path));
       this.deletedPaths.add(pathKey(f.path));
@@ -2147,9 +2114,6 @@ export class VaultRegistry {
       }
     }
     this.failed.push(f);
-    if (f.code === "vault_limit_reached" || f.code === "member_limit_reached") {
-      this.limitReached = f.code;
-    }
     // A frozen-root refusal is the user's problem to fix (move the item into a
     // folder), not a transient sync error — so say so, once per path. Without
     // this the item just counts toward "N not synced" forever with no reason.
@@ -2174,10 +2138,9 @@ export class VaultRegistry {
     return "failed";
   }
 
-  /** Stop the current bulk run? Either the vault moved on, or the server told us
-   *  we've hit a plan limit and every further create would 402 as well. */
+  /** Stop the current bulk run? The vault moved on. */
   private stopRun(): boolean {
-    return this.stale() || this.limitReached != null || this.accountReadOnly;
+    return this.stale();
   }
 
   // ---- config.json -------------------------------------------------------
@@ -3567,8 +3530,6 @@ export class VaultRegistry {
     if (this.stale()) return { seeded: false };
     this.organizationId = input.organizationId;
     this.failed = [];
-    this.limitReached = null;
-    this.accountReadOnly = false;
     // NOT unconditional: `newCheckpointer` disposes the previous one, and after
     // a prime that one may hold a `markPushed` for a note the user opened during
     // the window — dropping it loses a real fact about the server.
@@ -3856,8 +3817,6 @@ export class VaultRegistry {
     // registry signal re-recorded the same refusals, so a vault could never come
     // back from "N not synced" even after the underlying cause was gone.
     this.failed = [];
-    this.limitReached = null;
-    this.accountReadOnly = false;
     const [folderRegistry, noteRegistry] = await this.takeListings(vaultId);
     if (this.stale()) return false;
     // The empty state of a member who can read nothing yet reads this.
@@ -4310,7 +4269,7 @@ export class VaultRegistry {
     // ---- notes ----
     // Above the threshold: the same work, batched. Identical accounting —
     // `withRetry` per request, `recordFailure` per item, `checkpoint.touch` per
-    // accepted row, one `sink.item` per item, and the 402 stop through
+    // accepted row, one `sink.item` per item, and the stop through
     // `stopRun()` — so the two paths cannot report a vault differently.
     // Filled by the per-note path below; the batch path announces per chunk.
     const createdNow: string[] = [];
@@ -4676,7 +4635,7 @@ export class VaultRegistry {
   //
   // Substitutions INSIDE reconcile, not a second reconciler: same `withRetry`,
   // same `recordFailure`, same `checkpoint.touch`, same `sink.item` accounting,
-  // same 402 stop through `stopRun()`. Only the number of round trips changes.
+  // same stop through `stopRun()`. Only the number of round trips changes.
 
   /**
    * Register every missing folder in `POST /folders/batch` requests.

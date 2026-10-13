@@ -12,7 +12,6 @@ import { useLiveInvitations } from "./components/useLiveInvitations";
 import { NotSyncingBannerView, notSyncingReason } from "./components/NotSyncingBanner";
 import { SyncPausedBannerView } from "./components/SyncPausedBanner";
 import { VaultUnsyncedBannerView } from "./components/VaultUnsyncedBanner";
-import { NoteLimitBannerView, noteLimitBanner } from "./components/NoteLimitBanner";
 import { CreateRefusalBannerView, createRefusalBanner } from "./components/CreateRefusalBanner";
 import {
   LOCATE_FOLDER,
@@ -82,8 +81,6 @@ import { onOpenFileRequest } from "./lib/openFileRequest";
 import { editorMeasureStyle } from "./lib/editorMeasure";
 import { noteLabel } from "./lib/notePath";
 import { ShareNoteButton } from "./components/ShareNoteButton";
-import { AttachmentSyncNotice } from "./components/AttachmentSyncNotice";
-import { AccountLapsedNotice } from "./components/AccountLapsedNotice";
 import { listenForNoteLinks } from "./lib/deepLink";
 import { useSidebarWidth } from "./lib/useSidebarWidth";
 import { readSidebarHidden, writeSidebarHidden } from "./lib/prefs";
@@ -303,40 +300,9 @@ function MembershipLostBanner() {
 }
 
 /**
- * The Free note-limit upgrade strip (the only part of the old "N notes didn't
- * sync" banner that survives — see `noteLimitBanner`).
- *
- * The dismissal is local state on purpose: it is a view preference about ONE
- * run, and keying it on the store's `failedRunToken` means the next failing run
- * raises the strip again by itself.
- */
-function NoteLimitBanner() {
-  const syncEnabled = useStore((s) => s.syncEnabled);
-  const progress = useStore((s) => s.syncProgress);
-  const runToken = useStore((s) => s.failedRunToken);
-  const [dismissedRunToken, setDismissedRunToken] = useState<number | null>(null);
-  const show = noteLimitBanner({
-    syncEnabled,
-    progress,
-    noteLimit: syncManager.registry.limitCode() === "note_limit_reached",
-    runToken,
-    dismissedRunToken,
-  });
-  // A pending choice (Upgrade): never fades.
-  const visible = useNoticeSlot("note-limit", show);
-  return (
-    <NoteLimitBannerView
-      show={visible}
-      onUpgrade={() => useStore.getState().requestSettings("billing")}
-      onDismiss={() => setDismissedRunToken(runToken)}
-    />
-  );
-}
-
-/**
  * New notes the server refused to create for access (`no_write_access`,
- * `root_frozen`). Read on the same re-render triggers as `NoteLimitBanner`
- * (every run's progress), since the refusals are recorded by those runs.
+ * `root_frozen`). Re-rendered on every run's progress, since the refusals
+ * are recorded by those runs.
  */
 function CreateRefusalBanner() {
   const syncEnabled = useStore((s) => s.syncEnabled);
@@ -973,13 +939,7 @@ function WhatsNewModal() {
   );
 }
 
-function SyncIndicator({
-  noteOpen,
-  attachmentLocalOnly = false,
-}: {
-  noteOpen: boolean;
-  attachmentLocalOnly?: boolean;
-}) {
+function SyncIndicator({ noteOpen }: { noteOpen: boolean }) {
   // Per-note sync status (offline / connecting / synced / read-only) PLUS the
   // vault's bulk-run progress, so a vault that is still uploading 380 of its 500
   // notes says so instead of claiming "Synced · just now" off a live socket.
@@ -995,12 +955,9 @@ function SyncIndicator({
   const syncPause = useStore((s) => s.syncPause);
   // The folder is gone (#228) or the shrink brake holds our writes (#252):
   // SyncBadge renders both itself (`syncBadgeHold`), and they outrank the
-  // attachment notice and the idle-vault hide below.
+  // idle-vault hide below.
   const held =
     syncBadgeHold({ rootMissing, enabled: syncEnabled, pause: syncPause, now: Date.now() }) != null;
-  if (!held && attachmentLocalOnly) {
-    return <SyncBadge status="offline" enabled={false} noteOpen />;
-  }
   // "idle" is the reporter's pre-start value — nothing to report yet.
   if (!held && !noteOpen && (progress == null || progress.phase === "idle")) return null;
   return (
@@ -1095,12 +1052,6 @@ export default function App() {
   // note — hide the save/sync chrome. The registry decides, so this cannot
   // disagree with what `FilePreview` actually rendered.
   const isPreview = openNote != null && viewerFor(openNote.path) !== "editor";
-  const attachmentLocalOnly = useStore(
-    (s) =>
-      s.attachmentSyncBlocked &&
-      s.openNote != null &&
-      routesToAttachmentSync(s.openNote.path),
-  );
   // Covers the LAST VAULT'S OPEN and nothing else. It used to cover the whole
   // session restore + sync reconcile too, which is why launch showed "Loading…"
   // for seconds on a big vault: the sidebar was ready long before auth was.
@@ -1699,10 +1650,7 @@ export default function App() {
             <div ref={setDashboardHeaderActionsHost} id="dashboard-header-actions" className="dashboard-header-actions" />
             {/* The right-hand controls float as one pill over the white row. */}
             <div className="header-actions">
-              <SyncIndicator
-                noteOpen={openNote != null && !isPreview}
-                attachmentLocalOnly={attachmentLocalOnly}
-              />
+              <SyncIndicator noteOpen={openNote != null && !isPreview} />
               {/* Vault-wide, so it sits in the header regardless of the open note. */}
               <TalkButton />
               {/* Same gate as history: a link is a doc_id, so it only exists for a
@@ -1754,14 +1702,11 @@ export default function App() {
           <MembershipLostBanner />
           <VaultRootMissingBanner />
           <VaultRootRestoredBanner />
-          <AccountLapsedNotice />
           <ClosedAppChangesBanner />
           <NotSyncingBanner />
           <SyncPausedBanner />
-          <NoteLimitBanner />
           <CreateRefusalBanner />
           <RemovedBanner />
-          {attachmentLocalOnly && <AttachmentSyncNotice />}
           <div className="editor-wrap">
             {activeVirtual && <VirtualTabHost tab={activeVirtual} />}
             {/* Stays MOUNTED under a virtual tab (display toggles, the tree does

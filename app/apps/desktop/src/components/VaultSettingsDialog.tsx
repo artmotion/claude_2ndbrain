@@ -5,30 +5,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
-  type BillingUsage,
   type McpToolInfo,
   type McpTokenRow,
-  type MyBillingAccount,
-  type MyBillingVault,
   type UnsyncPreview,
   type VaultCheckpoint,
 } from "../lib/api";
 import { toast } from "../lib/toast";
 import { agoFromIso, checkpointTitle, noteCountLabel } from "./versionFormat";
 import { authManager } from "../lib/auth/authManager";
-import {
-  classifyLimitError,
-  formatBytes,
-  LEGACY_PRO_BENEFITS,
-  legacyFreePlanExplanation,
-  type LimitKind,
-  limitFromError,
-  planPillLabel,
-  subscriptionStatusLine,
-  transferTargets,
-  vaultPlanLine,
-  vaultLimitReason,
-} from "../lib/billing";
 import * as ipc from "../lib/ipc";
 import { useStore } from "../store";
 import { MembersAccessTab, prefetchRoster } from "./MembersAccessTab";
@@ -36,9 +20,6 @@ import { AsyncButton } from "./AsyncButton";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useResetLocalCopy } from "./useResetLocalCopy";
 import { AiSettingsTab } from "./AiSettingsTab";
-// Static, not via ./Face: this module is itself a lazy chunk, so it pays for
-// the avatar chunk it is already loading.
-import { LimitNudge } from "./LimitNudge";
 import { MenuIcon } from "./MenuIcon";
 import { SettingsModal } from "./SettingsModal";
 import { SettingsCrossLink } from "./SettingsCrossLink";
@@ -52,7 +33,6 @@ import {
   type AppearanceSettings,
   type ResolvedAppearance,
 } from "../lib/appearanceSettings";
-import { formatPrice, perLabel, UpgradeDialog } from "./UpgradeDialog";
 import { useLocalFolderClasses, useLocalVaults } from "./useVaultLists";
 import { visibleFolders } from "../lib/vault/vaultList";
 import { VaultIconSettings } from "./VaultIconSettings";
@@ -63,16 +43,9 @@ import { AccountVaultsTab } from "./AccountVaultsTab";
 // this component; re-exported here so every existing importer is unchanged.
 export type { SettingsTab } from "../lib/settingsTabs";
 import type { SettingsTab } from "../lib/settingsTabs";
-import { PlanHeader } from "./PlanHeader";
 
 // Sections that only make sense once the vault is synced to an org. On a
 // local vault they're shown but locked, with a "Turn on sync" gate.
-//
-// Billing is deliberately NOT one of them (#109). Someone working in a local
-// folder can still own vaults that are billing, and a subscription left behind
-// by a DELETED vault has to be reachable from somewhere or the money is
-// unrecoverable. Only the per-vault card at the top of that tab needs a synced
-// vault, and it says so itself.
 const TEAM_TABS = new Set<SettingsTab>([
   "members",
   "mcp",
@@ -168,18 +141,6 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: React.ReactNo
   },
 ];
 
-/** The Billing tab, inserted after Members only when the server has billing on. */
-const BILLING_TAB: { id: SettingsTab; label: string; icon: React.ReactNode } = {
-  id: "billing",
-  label: "Billing",
-  icon: (
-    <MenuIcon>
-      <rect x="2" y="5" width="20" height="14" rx="2" />
-      <path d="M2 10h20" />
-    </MenuIcon>
-  ),
-};
-
 /**
  * Vault settings — a centered modal over the app (sharing its shell with
  * Account settings via {@link SettingsModal}): everything about the vault lives
@@ -198,7 +159,6 @@ export function VaultSettingsDialog({
   const session = useStore((s) => s.session);
   const organizations = useStore((s) => s.organizations);
   const members = useStore((s) => s.members);
-  const billingConfig = useStore((s) => s.billingConfig);
   const vault = useStore((s) => s.vault);
   const syncEnabled = useStore((s) => s.syncEnabled);
   const locals = useLocalVaults();
@@ -219,11 +179,6 @@ export function VaultSettingsDialog({
   // vault (signed out, or an unsynced local folder) shows a reduced page
   // with the team sections locked behind "Turn on sync".
   const isSynced = syncEnabled && !!activeOrg;
-  const billingEnabled = billingConfig?.enabled === true;
-  // Team model: the plan lives on the account (Account Settings → Plan &
-  // Billing), so this vault's page shows its usage. Same tab id, so a
-  // `requestSettings("billing")` deep link still lands here.
-  const teamBilling = billingConfig?.model === "team";
 
   // The vault list lives in Account Settings → Vaults (2026-10-07). Only a
   // signed-out app with local folders keeps it here: it has no account page.
@@ -238,16 +193,8 @@ export function VaultSettingsDialog({
     const out = SHOW_AI_TAB ? [GENERAL_TAB, AI_TAB] : [GENERAL_TAB];
     if (showVaults) out.push(...SETTINGS_TABS);
     else out.push(...SETTINGS_TABS.filter((t) => t.id !== "vaults"));
-    if (billingEnabled) {
-      const idx = out.findIndex((t) => t.id === "dashboards");
-      out.splice(
-        idx >= 0 ? idx + 1 : out.length,
-        0,
-        teamBilling ? { ...BILLING_TAB, label: "Usage" } : BILLING_TAB,
-      );
-    }
     return out;
-  }, [showVaults, billingEnabled, teamBilling]);
+  }, [showVaults]);
 
   // Warm the Members tab's roster as the dialog opens (#307); paint only.
   useEffect(() => {
@@ -360,8 +307,6 @@ export function VaultSettingsDialog({
               onCloseSettings={onClose}
               resetToken={tabReset}
             />
-          ) : shown === "billing" ? (
-            <BillingTab canManage={canManage} isSynced={isSynced} />
           ) : shown === "mcp" ? (
             <McpTab />
           ) : shown === "versioning" ? (
@@ -410,10 +355,6 @@ function GeneralTab({
   const [name, setName] = useState(vault?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [limitNudge, setLimitNudge] = useState<{ kind: LimitKind; limit: number | null } | null>(
-    null,
-  );
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   const turnOn = async () => {
     if (authStatus !== "signed-in") {
@@ -424,30 +365,15 @@ function GeneralTab({
     }
     setBusy(true);
     setError(null);
-    setLimitNudge(null);
     try {
       await useStore.getState().turnOnSyncForCurrentVault(name.trim() || undefined);
     } catch (e) {
-      const kind = classifyLimitError(e);
-      if (kind) {
-        const limit = limitFromError(e);
-        setLimitNudge({ kind, limit });
-        // Team model: the refusal IS the upgrade moment, so the plan comparison
-        // opens at once; the nudge stays behind it for after a close.
-        const st = useStore.getState();
-        if (kind === "vault_limit" && st.billingConfig?.model === "team") {
-          st.requestUpgradeDialog({
-            reason: vaultLimitReason(limit ?? st.billingConfig.freeLimits?.vaultsPerUser ?? 1),
-          });
-        }
-      } else {
-        const message = e instanceof Error ? e.message : String(e);
-        setError(message);
-        // The inline line can be scrolled out of view, and the button simply
-        // returns to idle — which reads as "nothing happened". A sticky toast is
-        // always visible (#85).
-        toast(`Couldn't turn on sync — ${message}`, "error");
-      }
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      // The inline line can be scrolled out of view, and the button simply
+      // returns to idle — which reads as "nothing happened". A sticky toast is
+      // always visible (#85).
+      toast(`Couldn't turn on sync — ${message}`, "error");
     } finally {
       setBusy(false);
     }
@@ -513,13 +439,6 @@ function GeneralTab({
               <div className="muted">You'll need to sign in first — this button will prompt you.</div>
             )}
             {error && <div className="auth-error">{error}</div>}
-            {limitNudge && (
-              <LimitNudge
-                kind={limitNudge.kind}
-                limit={limitNudge.limit}
-                onUpgrade={() => setUpgradeOpen(true)}
-              />
-            )}
           </div>
         </>
       )}
@@ -535,8 +454,6 @@ function GeneralTab({
       </div>
 
       {isSynced && isOwner && <UnsyncDangerZone />}
-
-      {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
     </>
   );
 }
@@ -679,7 +596,7 @@ function serverHost(serverUrl: string): string {
  * deliberately no path from a single click to done.
  *
  * On failure the dialog STAYS OPEN so the server's reason (403 `owner_only`, a
- * 409 `name_mismatch`, the 502 a refusing billing provider produces) has
+ * 409 `name_mismatch`) has
  * somewhere to show, with a sticky error toast beside it — a destructive path
  * must never look like a success (#85). Nothing was destroyed in that case: the
  * store only touches this device once the server has answered.
@@ -738,11 +655,6 @@ export function UnsyncConfirmDialog({
     }
   };
 
-  const teamBilling = useStore((s) => s.billingConfig?.model === "team");
-  // On Team-model servers billing belongs to the owner's account, not the
-  // vault, so removing a vault never ends a subscription.
-  const sub = teamBilling ? null : (preview?.subscription ?? null);
-
   return (
     <ConfirmDialog
       title={`Make ${orgName} local only?`}
@@ -798,13 +710,6 @@ export function UnsyncConfirmDialog({
           )}
         </ul>
       ) : null}
-      {sub && (
-        <p>
-          {sub.currentPeriodEnd
-            ? `Pro ends on ${formatDate(sub.currentPeriodEnd)} — until then you can move the subscription to another vault from Billing.`
-            : "Pro ends when the current period does — until then you can move the subscription to another vault from Billing."}
-        </p>
-      )}
       <p>This cannot be undone. Teammates cannot get the vault back from us.</p>
       <label className="confirm-type">
         <span>
@@ -908,800 +813,12 @@ function SyncGate({ label, onGoToSync }: { label: string; onGoToSync: () => void
   );
 }
 
-/** One stat tile on the team-mode Usage tab. */
-interface UsageTile {
-  key: string;
-  caption: string;
-  value: string;
-  sub: string;
-  meter?: { used: number; limit: number } | null;
-}
-
-/** "1.2 MB" → { value: "1.2", unit: "MB" }; plain bytes read as "bytes". */
-function splitBytes(n: number): { value: string; unit: string } {
-  const [value, unit] = formatBytes(n).split(" ");
-  return { value, unit: unit === "B" ? "bytes" : unit };
-}
-
-/**
- * Team model: the active vault's billing card. A user owns exactly one billing
- * account (`billing/accounts.ts`), so the only destination a move can have is
- * the caller's own account: an owner whose vault is billed on a co-owner's
- * account gets "Move to my account". There is no picker because the server
- * accepts no other destination (`POST /billing/orgs/:orgId/move` requires the
- * caller to own both the vault and the destination account).
- */
-function TeamVaultBillingCard({
-  orgId,
-  vaultName,
-  isOwner,
-  plan,
-  vaultAccountId,
-  onMoved,
-}: {
-  orgId: string | null;
-  vaultName: string | null;
-  isOwner: boolean;
-  plan: "free" | "pro" | "team";
-  vaultAccountId: string | null;
-  onMoved: () => Promise<unknown>;
-}) {
-  // Only an owner can move, so only an owner needs (or lazily creates) their account.
-  const [myAccount, setMyAccount] = useState<MyBillingAccount | null>(null);
-  const myAccountId = myAccount?.id ?? null;
-  const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [limitNudge, setLimitNudge] = useState<{ kind: LimitKind; limit: number | null } | null>(
-    null,
-  );
-
-  // This vault's usage, read from the account it is billed on (any member may
-  // read it with `orgId`). `undefined` = loading, `null` = unavailable.
-  const [usage, setUsage] = useState<BillingUsage | null | undefined>(undefined);
-
-  // Fresh on every mount: the owner's billing account (the same source Plan &
-  // Billing reads, so the pill agrees with it) and the `/mine` mirror whose
-  // per-vault `accountPlan` covers vaults billed on someone else's account.
-  useEffect(() => {
-    void useStore.getState().refreshMyBilling();
-    if (!isOwner) return;
-    let live = true;
-    authManager.api
-      .getBillingAccount()
-      .then((a) => { if (live) setMyAccount(a); })
-      .catch(() => {});
-    return () => { live = false; };
-  }, [isOwner, orgId]);
-
-  useEffect(() => {
-    if (!orgId) {
-      setUsage(null);
-      return;
-    }
-    let live = true;
-    setUsage(undefined);
-    authManager.api
-      .getBillingUsage({ orgId })
-      .then((u) => { if (live) setUsage(u); })
-      .catch(() => { if (live) setUsage(null); });
-    return () => { live = false; };
-  }, [orgId, vaultAccountId]);
-
-  const usageRow = usage?.vaults.find((v) => v.orgId === orgId) ?? null;
-  const ownerName = useStore((s) => {
-    const owner = s.members.find((m) => m.organizationId === orgId && m.role === "owner");
-    return owner?.user?.name || owner?.user?.email || null;
-  });
-  const planLine = vaultPlanLine({
-    account: myAccount,
-    vaultAccountId,
-    fallbackPlan: plan,
-    isOwner,
-    ownerName,
-    fmtDate: formatDate,
-  });
-
-  const elsewhere = isOwner && !!myAccountId && !!vaultAccountId && vaultAccountId !== myAccountId;
-  const label = vaultName ?? "this vault";
-
-  const runMove = async () => {
-    if (!orgId || !myAccountId) return;
-    setError(null);
-    setLimitNudge(null);
-    try {
-      await authManager.api.moveVault(orgId, myAccountId);
-      setConfirming(false);
-      await onMoved();
-      toast(`${vaultName ?? "The vault"} is now on your account.`);
-    } catch (e) {
-      const body = e instanceof ApiError && e.body && typeof e.body === "object"
-        ? (e.body as Record<string, unknown>)
-        : null;
-      const code = body ? (body.code ?? body.error) : null;
-      if (e instanceof ApiError && e.status === 400 && code === "same_account") {
-        // Already there (another device moved it): just catch up.
-        setConfirming(false);
-        await onMoved();
-        return;
-      }
-      if (e instanceof ApiError && e.status === 409 && code === "vault_limit_reached") {
-        setConfirming(false);
-        setLimitNudge({
-          kind: "vault_limit",
-          limit: typeof body?.limit === "number" ? body.limit : null,
-        });
-        return;
-      }
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
-      toast(`Couldn't move the vault — ${message}`, "error");
-    }
-  };
-
-  // Tiles: the four counts always; on Free, People carries a meter against the
-  // account's ceiling and a Synced vaults tile joins only when a vault limit exists.
-  const loading = usage === undefined;
-  const syncedVaults = usage ? (usage.totals.vaults ?? usage.vaults.length) : 0;
-  const bytes = usageRow ? splitBytes(usageRow.storageBytes) : null;
-  const tiles: UsageTile[] = [
-    {
-      key: "people",
-      caption: "People",
-      value: loading ? "…" : String(usageRow?.people ?? 0),
-      sub:
-        usage?.limits.people != null
-          ? `of ${usage.limits.people} on this account`
-          : (usageRow?.people ?? 0) === 1 ? "person" : "people",
-      meter:
-        usage?.limits.people != null && usageRow
-          ? { used: usageRow.people, limit: usage.limits.people }
-          : null,
-    },
-    {
-      key: "notes",
-      caption: "Notes",
-      value: loading ? "…" : String(usageRow?.notes ?? 0),
-      sub: "in this vault",
-    },
-    {
-      key: "attachments",
-      caption: "Attachments",
-      value: loading ? "…" : (bytes?.value ?? "0"),
-      sub: bytes?.unit ?? "bytes",
-    },
-    {
-      key: "files",
-      caption: "Files",
-      value: loading ? "…" : String(usageRow?.files ?? 0),
-      sub: "in this vault",
-    },
-  ];
-  const freeBase = useStore.getState().billingConfig?.free?.syncedVaults ?? null;
-  if (usage?.limits.vaults != null) {
-    tiles.push({
-      key: "vaults",
-      caption: "Synced vaults",
-      value: String(syncedVaults),
-      sub:
-        freeBase != null && usage.limits.vaults > freeBase
-          ? `of ${usage.limits.vaults} on this account · includes vaults you had before`
-          : `of ${usage.limits.vaults} on this account`,
-      meter: { used: syncedVaults, limit: usage.limits.vaults },
-    });
-  }
-
-  return (
-    <>
-      <div className="billing-card vault-usage">
-        <div className={`plan-header${planLine.plan === "Team" ? " is-team" : ""}`}>
-          <PlanHeader name={planLine.plan} pill={planLine.status} />
-          {planLine.billedOn && <div className="billing-section-note muted">{planLine.billedOn}</div>}
-        </div>
-        {loading || (usageRow && usage) ? (
-          <div className="vault-usage-tiles">
-            {tiles.map((t) => {
-              const full = !!t.meter && t.meter.limit > 0 && t.meter.used >= t.meter.limit;
-              const pct = t.meter && t.meter.limit > 0
-                ? Math.min(100, Math.round((t.meter.used / t.meter.limit) * 100))
-                : 0;
-              return (
-                <div key={t.key} className="vault-usage-tile">
-                  <span className="vault-usage-caption">{t.caption}</span>
-                  <span className="vault-usage-value">{t.value}</span>
-                  <span className="vault-usage-sub">{t.sub}</span>
-                  {t.meter && !loading && (
-                    <div
-                      className={`vault-usage-meter${full ? " is-full" : ""}`}
-                      role="meter"
-                      aria-label={t.caption}
-                      aria-valuemin={0}
-                      aria-valuemax={t.meter.limit}
-                      aria-valuenow={t.meter.used}
-                    >
-                      <span style={{ width: `${pct}%` }} />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="muted">Usage isn't available for this vault right now.</div>
-        )}
-        <div className="vault-usage-footer is-end">
-          <button
-            className="secondary billing-action"
-            onClick={() => useStore.getState().requestAccountSettings("plan")}
-          >
-            Open Plan &amp; Billing
-          </button>
-        </div>
-        {elsewhere && (
-          <div className="vault-usage-footer">
-            <span className="vault-usage-footer-label">
-              Bill it on your own account instead.
-            </span>
-            <button
-              className="secondary billing-action"
-              onClick={() => {
-                setError(null);
-                setLimitNudge(null);
-                setConfirming(true);
-              }}
-            >
-              Move to my account
-            </button>
-          </div>
-        )}
-        {error && <div className="auth-error">{error}</div>}
-        {limitNudge && (
-          <LimitNudge
-            kind={limitNudge.kind}
-            limit={limitNudge.limit}
-            onUpgrade={() => useStore.getState().requestAccountSettings("plan")}
-          />
-        )}
-        {confirming && (
-          <ConfirmDialog
-            tone="accent"
-            title={`Move ${label} to your account?`}
-            confirmLabel="Move to my account"
-            onCancel={() => setConfirming(false)}
-            onConfirm={runMove}
-          >
-            <p>
-              Its people and limits will count on your account from now on, and it
-              stops counting on the account it is on today. Notes, members and access
-              stay exactly as they are.
-            </p>
-          </ConfirmDialog>
-        )}
-      </div>
-    </>
-  );
-}
-
-/**
- * BillingTab: the current vault's plan and seats, then every subscription the
- * signed-in user can act on (spec 04, #109/#110).
- *
- * Three sections, in the order someone reaching for this page needs them:
- * this vault (what am I on?), all my vaults (what am I paying for?), and
- * subscriptions from deleted vaults (what am I paying for that no longer
- * exists?). Facts are visible to every member; each action is gated to the
- * role the server will actually accept — Upgrade and Manage for owners and
- * admins, Transfer for owners only, because it changes who pays for what.
- *
- * Only the first section needs a synced vault; the other two are account-wide,
- * which is why this tab is no longer in TEAM_TABS.
- */
-function BillingTab({ canManage, isSynced }: { canManage: boolean; isSynced: boolean }) {
-  const billingConfig = useStore((s) => s.billingConfig);
-  const orgBilling = useStore((s) => s.orgBilling);
-  const myBilling = useStore((s) => s.myBilling);
-  const orgId = useStore((s) => s.session?.activeOrganizationId ?? null);
-
-  // The vault the upgrade dialog should charge: the active one from the card
-  // at the top, or any owned free vault picked out of the list below.
-  const [upgradeOrg, setUpgradeOrg] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // A transfer being set up: the source row's Transfer was clicked and the
-  // dialog is open. `targetOrgId` is the pick, null until one is made (or the
-  // only eligible vault, pre-picked). It moves money between vaults, so the
-  // dialog is where both the choice AND the confirmation happen — never a
-  // popover that fires on the first click.
-  const [transfer, setTransfer] = useState<{
-    sourceOrgId: string;
-    sourceLabel: string;
-    targetOrgId: string | null;
-  } | null>(null);
-  // An orphaned subscription waiting on a "cancel now" confirmation.
-  const [cancelling, setCancelling] = useState<{ orgId: string; label: string } | null>(
-    null,
-  );
-
-  // Refresh this vault's seats AND the account-wide list whenever the tab opens.
-  useEffect(() => {
-    void useStore.getState().refreshOrgBilling();
-    void useStore.getState().refreshMyBilling();
-  }, []);
-
-  const refreshAll = async () => {
-    await Promise.all([
-      useStore.getState().refreshMyBilling(),
-      useStore.getState().refreshOrgBilling(),
-    ]);
-  };
-
-  /** Open a vault's provider portal in the OS browser (owner/admin). */
-  const openPortal = async (portalOrgId: string) => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const { url } = await authManager.api.getBillingPortalUrl(portalOrgId);
-      await ipc.openExternal(url);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Both confirmed actions leave their dialog OPEN on failure and report into
-  // it, rather than closing over an error nobody sees. Neither re-throws — the
-  // dialog's own AsyncButton has finished reporting by then.
-  const runTransfer = async () => {
-    if (!transfer || !transfer.targetOrgId) return;
-    const { sourceOrgId, targetOrgId } = transfer;
-    const targetName = vaults.find((v) => v.orgId === targetOrgId)?.name ?? "the vault";
-    setError(null);
-    try {
-      await authManager.api.transferSubscription(sourceOrgId, targetOrgId);
-      setTransfer(null);
-      await refreshAll();
-      toast(`Pro moved to ${targetName}.`);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
-      toast(`Couldn't move the subscription — ${message}`, "error");
-    }
-  };
-
-  const runCancelNow = async () => {
-    if (!cancelling) return;
-    const { orgId: target, label } = cancelling;
-    setError(null);
-    try {
-      await authManager.api.cancelSubscription(target, "now");
-      setCancelling(null);
-      await refreshAll();
-      toast(`Subscription for ${label} canceled.`);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      setError(message);
-      toast(`Couldn't cancel the subscription — ${message}`, "error");
-    }
-  };
-
-  if (!billingConfig?.enabled) {
-    return (
-      <div className="muted perm-empty">Billing isn't enabled on this server.</div>
-    );
-  }
-
-  // Team model: billing lives on the owner's account (Account Settings → Plan &
-  // Billing); this tab (labelled Usage) shows the vault's own usage. No per-vault subscription list and no transfer here.
-  if (billingConfig.model === "team") {
-    const row = myBilling?.vaults.find((v) => v.orgId === orgId) ?? null;
-    return (
-      <TeamVaultBillingCard
-        orgId={orgId}
-        vaultName={row?.name ?? null}
-        isOwner={row?.role === "owner"}
-        plan={row?.accountPlan ?? orgBilling?.accountPlan ?? "free"}
-        vaultAccountId={row?.accountId ?? orgBilling?.accountId ?? null}
-        onMoved={refreshAll}
-      />
-    );
-  }
-
-  const vaults = myBilling?.vaults ?? [];
-  const orphaned = myBilling?.orphaned ?? [];
-  const freeLimits = myBilling?.freeLimits ?? null;
-
-  /**
-   * The Transfer control for one row. It opens the transfer dialog, where the
-   * eligible destinations are laid out with their seats and plan and the move
-   * is confirmed in the same place. With exactly one eligible vault it is
-   * pre-picked, so the common case is still one click plus a confirm.
-   *
-   * No eligible vault ⇒ a disabled control that says why, rather than a menu
-   * with nothing in it.
-   */
-  const transferControl = (sourceOrgId: string, sourceLabel: string) => {
-    const targets = transferTargets(vaults, sourceOrgId);
-    if (targets.length === 0) {
-      return (
-        <button
-          className="link-btn"
-          disabled
-          title="Nowhere to move it — you need another vault you own that isn't already on Pro."
-        >
-          Transfer
-        </button>
-      );
-    }
-    return (
-      <button
-        type="button"
-        className="link-btn"
-        disabled={busy}
-        aria-label={`Move ${sourceLabel}'s subscription to another vault`}
-        onClick={() => {
-          setError(null);
-          setTransfer({
-            sourceOrgId,
-            sourceLabel,
-            targetOrgId: targets.length === 1 ? targets[0].orgId : null,
-          });
-        }}
-      >
-        Transfer
-      </button>
-    );
-  };
-
-  /**
-   * The transfer dialog body: the eligible destinations as selectable cards.
-   * Each card carries what the reader weighs when choosing — the vault's
-   * seats, and that it is on Free today — instead of a bare name.
-   */
-  const renderTransferDialog = () => {
-    if (!transfer) return null;
-    const targets = transferTargets(vaults, transfer.sourceOrgId);
-    const target = targets.find((t) => t.orgId === transfer.targetOrgId) ?? null;
-    // Owned vaults that are NOT offered, so the list's gaps are explained.
-    const skipped = vaults.filter(
-      (v) => v.orgId !== transfer.sourceOrgId && v.role === "owner" && !targets.includes(v),
-    ).length;
-    return (
-      <ConfirmDialog
-        tone="accent"
-        title={`Move Pro from ${transfer.sourceLabel}`}
-        confirmLabel={target ? `Move Pro to ${target.name}` : "Move subscription"}
-        confirmDisabled={!target}
-        onCancel={() => setTransfer(null)}
-        onConfirm={runTransfer}
-      >
-        <p>
-          Choose the vault that becomes Pro. It keeps the same billing period and
-          price. <strong>{transfer.sourceLabel}</strong> drops to Free — its members
-          and notes stay, but its attachments stop syncing. Every local copy remains
-          available on its device.
-        </p>
-        <div className="transfer-targets" role="radiogroup" aria-label="Destination vault">
-          {targets.map((t) => {
-            const used = t.seats.members + t.seats.pendingInvitations;
-            const selected = t.orgId === transfer.targetOrgId;
-            return (
-              <button
-                key={t.orgId}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                className={`upgrade-plan-card transfer-target${selected ? " selected" : ""}`}
-                onClick={() => setTransfer({ ...transfer, targetOrgId: t.orgId })}
-              >
-                <span className="transfer-target-name">{t.name}</span>
-                <span className="transfer-target-meta">
-                  {used} of {t.seats.limit ?? "∞"} member{used === 1 ? "" : "s"} · Free
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {skipped > 0 && (
-          <p className="transfer-targets-note">
-            Only vaults you own that aren't already on Pro are listed.
-          </p>
-        )}
-        {error && <div className="auth-error">{error}</div>}
-      </ConfirmDialog>
-    );
-  };
-
-  /** Section 1 — the vault currently open. A plain render helper, NOT a nested
-   *  component: a component declared in here would remount its whole subtree
-   *  on every state change of this page. */
-  const renderVaultCard = () => {
-    if (!isSynced || !orgId) {
-      // A card, not a bare line: this slot holds the Pro/Free card in every
-      // other state, and a naked sentence there left the tab starting on
-      // nothing and the Subscriptions list looking like the whole page.
-      return (
-        <div className="billing-card">
-          <div className="muted">
-            This vault isn't synced, so it has no plan of its own. The vaults on
-            your account are listed below.
-          </div>
-        </div>
-      );
-    }
-    if (!orgBilling) return <div className="muted">Loading…</div>;
-
-    if (orgBilling.plan === "pro") {
-      return (
-        <div className="billing-card plan-pro">
-          <div className="billing-plan-head">
-            <span className="billing-plan-name">Pro</span>
-            <span className={`billing-status ${orgBilling.status}`}>
-              {orgBilling.status === "past_due"
-                ? "Past due"
-                : orgBilling.status === "canceled"
-                  ? "Canceled"
-                  : "Active"}
-            </span>
-          </div>
-          <div className="muted">
-            Attachment sync is active across devices and with your team.
-          </div>
-          {orgBilling.currentPeriodEnd && (
-            <div className="menu-row">
-              <span className="menu-row-label">
-                {orgBilling.cancelAtPeriodEnd ? "Access until" : "Renews"}
-              </span>
-              <span>{formatDate(orgBilling.currentPeriodEnd)}</span>
-            </div>
-          )}
-          {orgBilling.cancelAtPeriodEnd && (
-            <div className="limit-nudge">
-              <span>
-                Your subscription is set to cancel at the end of the current period.
-              </span>
-            </div>
-          )}
-          {canManage ? (
-            <AsyncButton
-              className="secondary billing-action"
-              disabled={busy}
-              onClick={() => openPortal(orgId)}
-            >
-              Manage subscription
-            </AsyncButton>
-          ) : (
-            <div className="muted">Ask an owner or admin to manage the subscription.</div>
-          )}
-        </div>
-      );
-    }
-
-    const { members, pendingInvitations, limit } = orgBilling.seats;
-    const used = members + pendingInvitations;
-    return (
-      <div className="billing-card">
-        <div className="billing-plan-head">
-          <span className="billing-plan-name">Free</span>
-        </div>
-        <div className="menu-row">
-          <span className="menu-row-label">Members</span>
-          <span>
-            {used} of {limit ?? "∞"}
-            {limit != null && used >= limit ? " · full" : ""}
-          </span>
-        </div>
-        {pendingInvitations > 0 && (
-          <div className="muted">
-            Includes {pendingInvitations} pending invitation
-            {pendingInvitations === 1 ? "" : "s"}.
-          </div>
-        )}
-
-        <div className="subhead">Upgrade to Pro unlocks</div>
-        <div className="muted">{legacyFreePlanExplanation(billingConfig.freeLimits)}</div>
-        <ul className="upgrade-features">
-          {LEGACY_PRO_BENEFITS.map((benefit) => (
-            <li key={benefit}>{benefit}</li>
-          ))}
-        </ul>
-
-        {canManage ? (
-          <button className="primary billing-action" onClick={() => setUpgradeOrg(orgId)}>
-            Upgrade to Pro
-          </button>
-        ) : (
-          <div className="muted">Ask an owner or admin to upgrade this vault.</div>
-        )}
-      </div>
-    );
-  };
-
-  /** One row of section 2. */
-  const renderVaultRow = (v: MyBillingVault) => {
-    const seatsUsed = v.seats.members + v.seats.pendingInvitations;
-    // One meta line, not three: renewal + price (already joined by
-    // `subscriptionStatusLine`), then seats, then who pays when that isn't the
-    // reader. A row is a name and a fact line, so the list scans vertically.
-    const meta = [
-      subscriptionStatusLine(v, LINE_FORMAT),
-      `${seatsUsed} of ${v.seats.limit ?? "∞"} member${seatsUsed === 1 ? "" : "s"}`,
-      !v.canManage && v.billingOwner ? `Billed to ${v.billingOwner.name}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    return (
-      <li key={v.orgId} className="billing-sub-row">
-        <span className="billing-sub-name">
-          <span className="billing-sub-title">
-            <span className="billing-sub-vault">{v.name}</span>
-            {/* A pill, not muted trailing text: it labels the row the reader
-                arrived from, so it has to survive the name's ellipsis. */}
-            {v.orgId === orgId && <span className="member-role">Current</span>}
-          </span>
-          {meta && <span className="billing-sub-meta">{meta}</span>}
-        </span>
-        {/* Owner is the default for a vault you are billed for, and the row
-            already carries Current + plan pills plus up to three actions — so
-            the role pill only appears when the role is worth saying. */}
-        {v.role !== "owner" && <span className={`member-role ${v.role}`}>{v.role}</span>}
-        <span className={`billing-status ${v.status}`}>{planPillLabel(v)}</span>
-        <span className="vault-row-actions">
-          {v.canManage && v.plan === "free" && (
-            <AsyncButton
-              className="link-btn"
-              disabled={busy}
-              onClick={() => setUpgradeOrg(v.orgId)}
-            >
-              Upgrade
-            </AsyncButton>
-          )}
-          {v.canManage && v.plan === "pro" && (
-            <AsyncButton
-              className="link-btn"
-              disabled={busy}
-              onClick={() => openPortal(v.orgId)}
-            >
-              Manage
-            </AsyncButton>
-          )}
-          {v.canTransfer && transferControl(v.orgId, v.name)}
-        </span>
-      </li>
-    );
-  };
-
-  return (
-    <>
-      {renderVaultCard()}
-
-      {/* ---- 2. Every vault on the account ---- */}
-      <div className="subhead">Subscriptions</div>
-      {vaults.length === 0 ? (
-        <div className="muted perm-empty">
-          {myBilling ? "No vaults on this account yet." : "Loading…"}
-        </div>
-      ) : (
-        <ul className="member-list">{vaults.map(renderVaultRow)}</ul>
-      )}
-
-      {/* ---- 3. Tombstones: paid time that outlived its vault ---- */}
-      {orphaned.length > 0 && (
-        <>
-          <div className="subhead">From deleted vaults</div>
-          <div className="billing-section-note">
-            These subscriptions belonged to vaults that were deleted. They still
-            bill until they end — move one to a vault to use the time you've paid
-            for, or cancel it now.
-          </div>
-          <ul className="member-list">
-            {orphaned.map((o) => {
-              const label = o.orgName ?? "Deleted vault";
-              // Same two-line shape as a live vault row: the name leads, and
-              // when it was deleted is a fact on the meta line, not a
-              // parenthetical that competes with the name for the ellipsis.
-              const meta = [
-                `Deleted ${formatDate(o.deletedAt)}`,
-                subscriptionStatusLine(o, LINE_FORMAT),
-              ]
-                .filter(Boolean)
-                .join(" · ");
-              return (
-                <li key={o.orgId} className="billing-sub-row">
-                  <span className="billing-sub-name">
-                    <span className="billing-sub-title">
-                      <span className="billing-sub-vault">{label}</span>
-                    </span>
-                    <span className="billing-sub-meta">{meta}</span>
-                  </span>
-                  <span className={`billing-status ${o.status}`}>
-                    {o.status === "past_due" ? "Past due" : "Pro"}
-                  </span>
-                  <span className="vault-row-actions">
-                    {transferControl(o.orgId, label)}
-                    <AsyncButton
-                      className="link-btn danger"
-                      disabled={busy}
-                      onClick={() => {
-                        setError(null);
-                        setCancelling({ orgId: o.orgId, label });
-                      }}
-                    >
-                      Cancel now
-                    </AsyncButton>
-                    <AsyncButton
-                      className="link-btn"
-                      disabled={busy}
-                      onClick={() => openPortal(o.orgId)}
-                    >
-                      Manage
-                    </AsyncButton>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
-
-      {/* ---- 4. What the free tier allows ---- */}
-      {freeLimits && (
-        <div className="menu-row settings-footer-row">
-          <span className="menu-row-label">Free vaults</span>
-          <span>
-            {freeLimits.freeVaultsUsed} of {freeLimits.vaultsPerUser} used
-          </span>
-        </div>
-      )}
-
-      {error && <div className="auth-error">{error}</div>}
-
-      {upgradeOrg && (
-        <UpgradeDialog orgId={upgradeOrg} onClose={() => setUpgradeOrg(null)} />
-      )}
-
-      {renderTransferDialog()}
-
-      {cancelling && (
-        <ConfirmDialog
-          title={`Cancel the subscription for ${cancelling.label}?`}
-          confirmLabel="Cancel subscription"
-          cancelLabel="Keep it"
-          onCancel={() => setCancelling(null)}
-          onConfirm={runCancelNow}
-        >
-          <p>
-            Billing stops now and the rest of the period is given up. There is no
-            vault left to use it on, so nothing else is lost.
-          </p>
-          <p>
-            If you'd rather keep the time you've paid for, move it to another vault
-            instead.
-          </p>
-          {error && <div className="auth-error">{error}</div>}
-        </ConfirmDialog>
-      )}
-    </>
-  );
-}
-
-/** Compact absolute date for renewal/period-end lines. */
+/** Compact absolute date. */
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
-
-/**
- * How a subscription row writes its date and price. Both formatters already
- * exist — reused here rather than re-implemented so `lib/billing.ts` can stay
- * pure and there is exactly one definition of how we print money.
- */
-const LINE_FORMAT = {
-  date: formatDate,
-  price: (amount: number, currency: string, interval: "month" | "year" | null) =>
-    `${formatPrice({ amount, currency })}${interval ? perLabel(interval) : ""}`,
-};
 
 /**
  * Versioning: the vault-wide safety net. Lists the vault's checkpoints (max 5 —

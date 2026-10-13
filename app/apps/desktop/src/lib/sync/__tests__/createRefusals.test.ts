@@ -197,7 +197,7 @@ describe("VaultRegistry — creates refused for access", () => {
     expect(reg.hasFailures()).toBe(false);
   });
 
-  it.each(["path_folder_mismatch", "note_limit_reached", "doc_id_conflict", "invalid_state", "note_too_large"])(
+  it.each(["path_folder_mismatch", "doc_id_conflict", "invalid_state", "note_too_large"])(
     "holds a %s refusal too, without calling it an access refusal",
     async (code) => {
       vi.useFakeTimers({ toFake: ["Date"] });
@@ -210,7 +210,6 @@ describe("VaultRegistry — creates refused for access", () => {
       const odd = reg.failures().filter((f) => f.path.startsWith("Odd/"));
       expect(odd.map((f) => [f.path, f.code])).toEqual([["Odd/a.md", code]]);
       expect(reg.heldRefusals()).toEqual([]);
-      if (code === "note_limit_reached") expect(reg.limitCode()).toBe("note_limit_reached");
       vi.setSystemTime(Date.now() + HELD_REFUSAL_RETRY_MS + 1000);
       await reg.pull();
       expect(oddCreates()).toBe(2);

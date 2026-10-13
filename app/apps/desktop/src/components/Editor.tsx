@@ -18,7 +18,7 @@ import { bindActiveNote } from "../lib/editor/activeNoteBinding";
 import { saveAttachment } from "../lib/attachments";
 import { bridgeManager, type NoteBridge } from "../lib/bridge";
 import { editorMeasureStyle } from "../lib/editorMeasure";
-import { effectiveLockForPath, hasBillingLapsedLock, lockScopesByPath } from "../lib/locks";
+import { effectiveLockForPath, lockScopesByPath } from "../lib/locks";
 import { playPingSound } from "../lib/presence/ping";
 import { syncManager } from "../lib/sync/docSession";
 import { colorForUser, PRESENCE_OFFLINE, statusTone, ringShowsColor } from "../lib/presence/color";
@@ -344,9 +344,6 @@ export function Editor() {
   const syncEnabled = useStore((s) => s.syncEnabled);
   const session = useStore((s) => s.session);
   const syncStatus = useStore((s) => s.syncStatus);
-  // The vault's Team subscription lapsed: the one read-only reason that names
-  // its cause, because the fix is a plan, not an access setting.
-  const billingLapsed = useStore((s) => hasBillingLapsedLock(s.locks));
   // A version the user is hovering in the history panel, rendered over the live
   // editor. The live view stays mounted and synced underneath — this is a look,
   // not a mode.
@@ -894,9 +891,7 @@ export function Editor() {
           {readOnly && (
             // ONE banner for every read-only reason (lock, Read-only posture, a
             // per-user view grant, a server readOnly token): the reason never
-            // changes what the reader can do, so it never changes the copy —
-            // except a lapsed Team subscription, whose fix is not an access
-            // setting anyone can look for.
+            // changes what the reader can do, so it never changes the copy.
             <div className="editor-lockbanner" role="status">
               <span className="editor-lockbanner-icon" aria-hidden="true">
                 <svg
@@ -913,18 +908,12 @@ export function Editor() {
               </span>
               <span className="editor-lockbanner-text">
                 <strong>
-                  {syncStatus === "no-access"
-                    ? "Access removed"
-                    : billingLapsed
-                      ? "Read-only:"
-                      : "View-only access"}
+                  {syncStatus === "no-access" ? "Access removed" : "View-only access"}
                 </strong>
                 <span className="editor-lockbanner-sub">
                   {syncStatus === "no-access"
                     ? "This local copy is not syncing. Editing is disabled."
-                    : billingLapsed
-                      ? "the Team subscription for this vault ended."
-                      : "You can read this note, but you can’t edit it."}
+                    : "You can read this note, but you can’t edit it."}
                 </span>
               </span>
             </div>

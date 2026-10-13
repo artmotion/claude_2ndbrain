@@ -4,14 +4,6 @@ import type { SeedResultFields } from "./sync/seedRegister";
 import { rememberAvatarImage } from "./avatarIdentity";
 import { parseHealth, type ServerHealth } from "./serverFeatures";
 import { CLIENT_OUTDATED_CODE, CLIENT_VERSION, CLIENT_VERSION_PARAM } from "./clientVersion";
-import { APP_CHANNEL, APP_SCHEME } from "./deepLinkScheme";
-
-/**
- * Which build starts a checkout, so the server's success page hands back to
- * THIS app (`secondbrain-staging://` for Staging, `secondbrain-dev://` for a dev build)
- * rather than whichever app owns `secondbrain://`. The server allow-lists the scheme.
- */
-const CHECKOUT_CLIENT = { channel: APP_CHANNEL, scheme: APP_SCHEME } as const;
 import type { AssistantProvider, HousekeeperStatus, HousekeeperScan, HousekeeperEdit, DiagnosticInput, DiagnosticReview } from "./housekeeper";
 // Type-only import: `bulkTypes.ts` is the hand-mirrored copy of the server's
 // wire contract, and importing the TYPES keeps this module a runtime leaf.
@@ -358,12 +350,6 @@ export interface Share {
   permission: "view" | "edit" | "readonly" | "locked" | "denied";
   createdBy?: string;
   created_by?: string;
-  /**
-   * Why a synthetic lock exists. `billing_lapsed` marks the vault row the
-   * server adds when the vault's Team account lapsed (id `billing:<orgId>`):
-   * sync is read-only until the plan resumes, whatever the access settings say.
-   */
-  reason?: "billing_lapsed" | (string & {});
 }
 
 export type Permission = "view" | "edit";
@@ -593,7 +579,7 @@ export interface BlobMeta {
 }
 
 /** `GET /api/vaults/:vaultId/storage` — attachment/file bytes this vault holds
- *  on the server. `limitBytes` null ⇒ this vault's plan has no storage cap. */
+ *  on the server. `limitBytes` is always null (no storage cap). */
 export interface VaultStorageUsage {
   usedBytes: number;
   pendingBytes: number;
@@ -820,216 +806,11 @@ export interface VaultSyncTokenResponse {
   vaultId: string;
 }
 
-// ---- Billing (subscription) ----------------------------------------------
-
-/** One purchasable plan variant (e.g. Pro monthly / yearly). Amount is in the
- *  currency's minor units (cents). */
-export interface BillingPlan {
-  id: string;
-  label: string;
-  amount: number;
-  currency: string;
-  interval: "month" | "year";
-}
-
-/** Server-wide billing capability (public; no auth). `enabled: false` means the
- *  server has no billing configured — a self-host runs with unlimited limits. */
-export interface BillingConfig {
-  enabled: boolean;
-  /** `team` = per-seat account billing; `vault` (or absent) = an older server
-   *  that bills each vault separately through `plans`. */
-  model?: "vault" | "team";
-  free?: { people: number; syncedVaults: number };
-  team?: {
-    minSeats: number;
-    currency: string;
-    /** `perSeat` in minor units (cents). */
-    prices: { interval: "month" | "year"; perSeat: number }[];
-  };
-  /** Old servers (`model` absent or `vault`). */
-  plans?: BillingPlan[];
-  freeLimits?: { vaultsPerUser: number; membersPerVault: number; notesPerVault?: number };
-}
-
-export type BillingStatus = "none" | "active" | "past_due" | "canceled";
-
-/** `GET /api/billing/account`: the caller's billing account (Team model). */
-/** One live legacy (pre-Team) subscription; `amount` in minor units. */
-export interface LegacyCharge {
-  amount: number;
-  currency: string;
-  interval: "month" | "year";
-  organizationId: string | null;
-  vaultName: string | null;
-  status: string;
-}
-
-export interface MyBillingAccount {
-  id: string;
-  status: BillingStatus;
-  plan: "free" | "team";
-  interval: "month" | "year" | null;
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-  /** A live subscription on a pre-Team product: unlimited people, no seats to
-   *  change. Absent on older servers (`isLegacyPlan` infers it). */
-  legacyPlan?: boolean;
-  /** Every live legacy subscription on the account (one per old Pro vault), sent
-   *  only to a manager of a legacy account. Absent on older servers. */
-  legacyCharges?: LegacyCharge[];
-  seats: {
-    /** null on Free (no seats bought). */
-    purchased: number | null;
-    used: number;
-    reserved: number;
-    pendingDecrease: { to: number; effectiveAt: string } | null;
-  };
-  /** Minor units; `charged < list` is a legacy (grandfathered) price. */
-  price: {
-    list: number;
-    charged: number;
-    discountName: string | null;
-    /** How long the discount lasts; absent on servers before migration 055. */
-    discountDuration?: "once" | "repeating" | "forever" | null;
-    discountDurationMonths?: number | null;
-    /** What the next renewal costs (list once a one-time discount is spent). */
-    renewalAmount?: number | null;
-  } | null;
-  people: { userId: string; name: string; email: string; vaults: string[] }[];
-  vaults: { orgId: string; name: string }[];
-  /** Vaults with pending invitations that hold seats; counts sum to
-   *  `seats.reserved`. Absent on older servers. */
-  invitedByVault?: { orgId: string; name: string; count: number }[];
-  limits: { people: number | null; vaults: number | null; assistant: boolean; fileSync: boolean };
-  lapsed: boolean;
-  canManage: boolean;
-  complimentaryUntil: string | null;
-}
-
-export interface BillingUsageVault {
-  orgId: string;
-  name: string;
-  people: number;
-  notes: number;
-  storageBytes: number;
-  files: number;
-}
-
-/** `GET /api/billing/account/usage`. */
-export interface BillingUsage {
-  vaults: BillingUsageVault[];
-  totals: { people: number; notes: number; storageBytes: number; files: number; vaults?: number };
-  limits: MyBillingAccount["limits"];
-}
-
-/** `GET /api/billing/account/seats/preview?seats=n`. Minor units (cents); any
- *  amount the server cannot work out is null. */
-export interface SeatPreview {
-  currentSeats: number | null;
-  newSeats: number;
-  /** Charged per period after the change, discount kept. */
-  newAmount: number | null;
-  perSeat: number | null;
-  currency: string | null;
-  interval: "month" | "year" | null;
-  /** Estimated prorated charge today for an increase. */
-  proratedNow: number | null;
-  currentPeriodEnd: string | null;
-  estimated: boolean;
-  floor?: number;
-}
-
-/** A single vault's subscription state + seat usage. */
-export interface OrgBilling {
-  plan: "free" | "pro";
-  status: "none" | "active" | "past_due" | "canceled";
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-  /** Cadence + price of the live subscription, straight from the provider's
-   *  snapshot — so a row can be priced without matching it back to a
-   *  `BillingPlan`. All three are null on a vault with no subscription
-   *  (#109). `amount` is minor units, like {@link BillingPlan.amount}. */
-  interval: "month" | "year" | null;
-  amount: number | null;
-  currency: string | null;
-  /** `limit: null` = unlimited (paid). */
-  seats: { members: number; pendingInvitations: number; limit: number | null };
-  /** Team model only (`BILLING_MODEL=team`): the plan of the billing account
-   *  this vault is attached to, and that account's id. Absent on servers still
-   *  on the per-vault model, where `plan` is the whole answer. */
-  accountPlan?: "free" | "team";
-  accountId?: string | null;
-}
-
-/** One row of the Subscriptions list: a vault the caller belongs to. */
-export interface MyBillingVault {
-  orgId: string;
-  name: string;
-  role: "owner" | "admin" | "member";
-  plan: "free" | "pro";
-  status: "none" | "active" | "past_due" | "canceled";
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-  interval: "month" | "year" | null;
-  amount: number | null;
-  currency: string | null;
-  seats: { members: number; pendingInvitations: number; limit: number | null };
-  /** The vault's owner — who to point a member at when they can't act. */
-  billingOwner: { userId: string; name: string; email: string } | null;
-  /** Owner or admin: may upgrade this vault or open its portal. */
-  canManage: boolean;
-  /** Owner AND the subscription is live: may move it to another vault. */
-  canTransfer: boolean;
-  /** Team model only (`BILLING_MODEL=team`): the plan of the billing account
-   *  this vault is attached to, and that account's id. Absent on servers still
-   *  on the per-vault model, where `plan` is the whole answer. */
-  accountPlan?: "free" | "team";
-  accountId?: string | null;
-}
-
-/**
- * A subscription whose vault is gone. Deleting a vault cancels its
- * subscription at the period end rather than instantly, so the paid time the
- * user already bought survives the vault — and has to be reachable from
- * somewhere (#109/#111). The server keeps the row as a tombstone; this is it.
- */
-export interface OrphanedSubscription {
-  orgId: string;
-  orgName: string | null;
-  deletedAt: string;
-  status: "active" | "past_due";
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-  interval: "month" | "year" | null;
-  amount: number | null;
-  currency: string | null;
-}
-
-/**
- * Every subscription the caller can see or act on, in one shot. The per-vault
- * `GET /api/billing/orgs/:orgId` can't answer this: role is only known for the
- * active org and plan is only known one org at a time.
- */
-export interface MyBilling {
-  vaults: MyBillingVault[];
-  orphaned: OrphanedSubscription[];
-  freeLimits: {
-    vaultsPerUser: number;
-    membersPerVault: number;
-    notesPerVault?: number;
-    /** Owned vaults with no subscription — what counts against the cap. */
-    freeVaultsUsed: number;
-  };
-}
-
 /** What `DELETE /api/orgs/:orgId` reports back. */
 export interface VaultDeleteResult {
   deleted: boolean;
   vaults: number;
   docs: number;
-  /** Set when the deleted vault carried a live subscription: the server told
-   *  the provider to stop at the period end, and this is when that is. */
-  subscription: { cancelAtPeriodEnd: boolean; currentPeriodEnd: string | null } | null;
 }
 
 /**
@@ -1049,12 +830,6 @@ export interface UnsyncPreview {
   publicLinks: number;
   mcpTokens: number;
   checkpoints: number;
-  /** The vault's live subscription, when it has one — the period-end sentence. */
-  subscription: {
-    status: string;
-    currentPeriodEnd: string | null;
-    cancelAtPeriodEnd: boolean;
-  } | null;
 }
 
 /** What `POST /api/orgs/:orgId/unsync` reports back once the server copy is gone. */
@@ -1063,8 +838,6 @@ export interface UnsyncResult {
   notes: number;
   files: number;
   members: number;
-  /** Set when the vault carried a live subscription: cancelled at the period end. */
-  subscription: { cancelAtPeriodEnd: boolean; currentPeriodEnd: string | null } | null;
 }
 
 /**
@@ -1136,7 +909,7 @@ function notifyClientOutdated(body: unknown): void {
 
 /**
  * A blob-transport call the server refused, carrying the machine-readable
- * `code` the flow branches on (`storage_limit_reached`, `attachment_too_large`,
+ * `code` the flow branches on (`attachment_too_large`,
  * `upload_incomplete`, …) next to the status.
  *
  * An `ApiError` subclass so every existing `catch (e) { if (e instanceof
@@ -1574,11 +1347,11 @@ export class ApiClient {
    * {@link ServerCheckError} if no.
    *
    * The ONE probe in this file that fails OPEN, and it exists precisely because
-   * the other two don't. `getAuthMethods` and `getBillingConfig` are capability
-   * probes: they swallow every failure and answer "not configured", which is
-   * right for deciding whether to draw a button and useless for telling someone
-   * their server URL is wrong. Building the onboarding check on either of them
-   * would report "connected" for a typo'd hostname.
+   * the others don't. `getAuthMethods` is a capability probe: it swallows
+   * every failure and answers "not configured", which is right for deciding
+   * whether to draw a button and useless for telling someone their server URL
+   * is wrong. Building the onboarding check on it would report "connected" for
+   * a typo'd hostname.
    *
    * Takes an explicit `baseUrl` because it runs BEFORE the URL is adopted —
    * validating a candidate must not disturb the client's current base or its
@@ -1996,11 +1769,6 @@ export class ApiClient {
    * cascades members/note-collections/folders/notes/shares and purges the FK-less
    * CRDT stores. Throws ApiError 403 if the caller isn't the owner.
    * (The vault's server identity is the Better Auth organization id.)
-   *
-   * A vault on Pro is cancelled at the provider FIRST, at the period end; if
-   * the provider refuses, nothing is deleted and this throws 502
-   * `subscription_cancel_failed` (#111). On success `subscription` says when
-   * the paid period runs out — until then it can be moved to another vault.
    */
   async deleteRemoteVault(organizationId: string): Promise<VaultDeleteResult> {
     const { data } = await this.request<VaultDeleteResult>(
@@ -2029,12 +1797,9 @@ export class ApiClient {
    * the caller keeps its `.md` files on disk.
    *
    * `confirmName` must equal the vault's name; the server answers 409
-   * `name_mismatch` otherwise and destroys NOTHING. Same billing rule as
-   * `deleteRemoteVault`: a paid vault is cancelled at the provider first and a
-   * provider refusal aborts the whole thing with 502
-   * `subscription_cancel_failed`, so a throw here means the server copy is
-   * still intact — which is exactly why the caller must not touch this device
-   * until this resolves.
+   * `name_mismatch` otherwise and destroys NOTHING, so a throw here means the
+   * server copy is still intact — which is exactly why the caller must not
+   * touch this device until this resolves.
    */
   async unsyncVault(organizationId: string, confirmName: string): Promise<UnsyncResult> {
     const { data } = await this.request<UnsyncResult>(
@@ -2214,222 +1979,6 @@ export class ApiClient {
       "DELETE",
       `/api/notes/${encodeURIComponent(docId)}/public-link`,
     );
-  }
-
-  // ---- Billing (subscription) ---------------------------------------------
-
-  /**
-   * Server billing capability. Public (no auth). Mirrors {@link getAuthMethods}'
-   * capability-probe pattern: ANY failure (older/self-hosted server without the
-   * endpoint, network error) is treated as "billing disabled" so the UI simply
-   * hides all billing affordances and enforces no limits.
-   */
-  async getBillingConfig(): Promise<BillingConfig> {
-    try {
-      return await this.probeBillingConfig();
-    } catch {
-      return { enabled: false };
-    }
-  }
-
-  /**
-   * The same request as {@link getBillingConfig}, but a failure THROWS instead
-   * of reading as "disabled". For screens that state a verdict about billing
-   * (Account Settings → Plan & Billing): a network error, a restarting server
-   * or a 5xx is not an answer, so `classifyBillingConfigResult` in
-   * `lib/billing.ts` decides what the caught error means (404 ⇒ disabled).
-   */
-  async probeBillingConfig(): Promise<BillingConfig> {
-    const { data } = await this.request<BillingConfig>("GET", "/api/billing/config");
-    if (!data || data.enabled !== true) return { enabled: false };
-    return {
-      enabled: true,
-      model: data.model ?? "vault",
-      free: data.free,
-      team: data.team,
-      plans: data.plans,
-      freeLimits: data.freeLimits,
-    };
-  }
-
-  /** A vault's subscription state + seat usage (any member of the org). */
-  async getOrgBilling(orgId: string): Promise<OrgBilling> {
-    const { data } = await this.request<OrgBilling>(
-      "GET",
-      `/api/billing/orgs/${encodeURIComponent(orgId)}`,
-    );
-    return data;
-  }
-
-  /** Start a hosted checkout for the org; returns the URL to open (owner/admin). */
-  async createBillingCheckout(
-    orgId: string,
-    interval: "month" | "year",
-  ): Promise<{ url: string }> {
-    const { data } = await this.request<{ url: string }>(
-      "POST",
-      `/api/billing/orgs/${encodeURIComponent(orgId)}/checkout`,
-      { body: { interval, client: CHECKOUT_CLIENT } },
-    );
-    return data;
-  }
-
-  /** Get the customer portal URL to manage/cancel the subscription (owner/admin). */
-  async getBillingPortalUrl(orgId: string): Promise<{ url: string }> {
-    const { data } = await this.request<{ url: string }>(
-      "POST",
-      `/api/billing/orgs/${encodeURIComponent(orgId)}/portal`,
-    );
-    return data;
-  }
-
-  /**
-   * Every vault the caller belongs to with its plan/seats/role, plus any
-   * subscription left behind by a deleted vault. One request rather than an
-   * N+1 over {@link getOrgBilling}: the server also reconciles stale rows
-   * against the provider while it is in there.
-   */
-  async getMyBilling(): Promise<MyBilling> {
-    const { data } = await this.request<MyBilling>("GET", "/api/billing/mine");
-    return data;
-  }
-
-  /**
-   * Cancel a vault's subscription (owner only; admins use the portal).
-   * `period_end` keeps the paid time and stops the next charge; `now` revokes
-   * immediately — which is what a subscription from an already-deleted vault
-   * wants, since there is no vault left to spend the rest of the period on.
-   */
-  async cancelSubscription(
-    orgId: string,
-    mode: "period_end" | "now",
-  ): Promise<OrgBilling> {
-    const { data } = await this.request<OrgBilling>(
-      "POST",
-      `/api/billing/orgs/${encodeURIComponent(orgId)}/cancel`,
-      { body: { mode } },
-    );
-    return data;
-  }
-
-  // ---- Team account billing (servers with `model: "team"`) ----------------
-
-  /** The caller's billing account: plan, seats, people who count, vaults. */
-  /** `refresh` asks the server to re-read the live subscription from the
-   *  provider once (throttled server-side); older servers ignore it. Only the
-   *  Plan & Billing mount and the checkout hand-back pass it. */
-  async getBillingAccount(opts: { orgId?: string; refresh?: boolean } = {}): Promise<MyBillingAccount> {
-    const params = new URLSearchParams();
-    if (opts.orgId) params.set("orgId", opts.orgId);
-    if (opts.refresh) params.set("refresh", "1");
-    const qs = params.toString();
-    const q = qs ? `?${qs}` : "";
-    const { data } = await this.request<MyBillingAccount>("GET", `/api/billing/account${q}`);
-    return data;
-  }
-
-  /** Per-vault usage and totals for the caller's account, or for the account
-   *  `orgId` is billed on (any member of that vault may read it). */
-  async getBillingUsage(opts: { orgId?: string } = {}): Promise<BillingUsage> {
-    const q = opts.orgId ? `?orgId=${encodeURIComponent(opts.orgId)}` : "";
-    const { data } = await this.request<BillingUsage>("GET", `/api/billing/account/usage${q}`);
-    return data;
-  }
-
-  /** What changing to `seats` would cost now and next period. */
-  async previewSeatChange(seats: number): Promise<SeatPreview> {
-    const { data } = await this.request<SeatPreview>(
-      "GET",
-      `/api/billing/account/seats/preview?seats=${encodeURIComponent(String(seats))}`,
-    );
-    return data;
-  }
-
-  /** Increase (immediate, prorated) or decrease (at period end) seats. */
-  async setSeats(seats: number): Promise<MyBillingAccount> {
-    const { data } = await this.request<MyBillingAccount>("PATCH", "/api/billing/account/seats", {
-      body: { seats },
-    });
-    return data;
-  }
-
-  /** Start a hosted Team checkout for the caller's account. */
-  async teamCheckout(input: {
-    seats: number;
-    interval: "month" | "year";
-    successUrl?: string;
-  }): Promise<{ url: string; checkoutId?: string }> {
-    const { data } = await this.request<{ url: string; checkoutId?: string }>(
-      "POST",
-      "/api/billing/account/checkout",
-      { body: { ...input, client: CHECKOUT_CLIENT } },
-    );
-    return data;
-  }
-
-  /** Ask the server to read a Team checkout back from the payment provider
-   *  and record its subscription if it has been paid, so the wait never
-   *  depends on a webhook. Answers the account. 404 on an older server
-   *  (no route) or a checkout that is not this account's. */
-  async reconcileTeamCheckout(checkoutId: string): Promise<MyBillingAccount> {
-    const { data } = await this.request<MyBillingAccount>(
-      "POST",
-      "/api/billing/account/reconcile",
-      { body: { checkoutId } },
-    );
-    return data;
-  }
-
-  /** Cancel the account's Team subscription at the period end. */
-  async accountCancel(): Promise<MyBillingAccount> {
-    const { data } = await this.request<MyBillingAccount>("POST", "/api/billing/account/cancel");
-    return data;
-  }
-
-  /** Undo a pending cancel. */
-  async accountResume(): Promise<MyBillingAccount> {
-    const { data } = await this.request<MyBillingAccount>("POST", "/api/billing/account/resume");
-    return data;
-  }
-
-  /** The provider's customer portal for the account. */
-  async accountPortalUrl(): Promise<{ url: string }> {
-    const { data } = await this.request<{ url: string }>("POST", "/api/billing/account/portal");
-    return data;
-  }
-
-  /** Attach a vault to another billing account the caller manages. */
-  async moveVault(orgId: string, toAccountId: string): Promise<{ moved: boolean }> {
-    const { data } = await this.request<{ moved: boolean }>(
-      "POST",
-      `/api/billing/orgs/${encodeURIComponent(orgId)}/move`,
-      { body: { toAccountId } },
-    );
-    return data;
-  }
-
-  /**
-   * @deprecated Per-vault subscriptions are gone on Team-model servers; use
-   * {@link moveVault}. Kept for older servers.
-   *
-   * Move a live subscription from one vault to another the caller owns. The
-   * source may be a deleted vault's tombstone, which is the whole point: it
-   * turns "I deleted the wrong vault" into a recoverable mistake instead of a
-   * refund request. Un-cancels at the provider when the source was set to
-   * cancel at the period end.
-   */
-  async transferSubscription(
-    sourceOrgId: string,
-    targetOrgId: string,
-  ): Promise<{ transferred: boolean; orgId: string; billing: OrgBilling }> {
-    const { data } = await this.request<{
-      transferred: boolean;
-      orgId: string;
-      billing: OrgBilling;
-    }>("POST", `/api/billing/orgs/${encodeURIComponent(sourceOrgId)}/transfer`, {
-      body: { targetOrgId },
-    });
-    return data;
   }
 
   // ---- Registry -----------------------------------------------------------
@@ -3306,8 +2855,7 @@ export class ApiClient {
     return data.events ?? [];
   }
 
-  /** Invite several addresses at once, each carrying a role and an access level.
-   * A 402 `member_limit_reached` throws like {@link inviteMember}. */
+  /** Invite several addresses at once, each carrying a role and an access level. */
   async inviteMany(orgId: string, input: InviteManyInput): Promise<InviteManyResult[]> {
     const { data } = await this.request<{ results: InviteManyResult[] }>(
       "POST",

@@ -6,7 +6,6 @@ import type { VaultStats } from "../types";
 const failures = (over: Partial<HealthFailures> = {}): HealthFailures => ({
   registry: [],
   content: [],
-  limitCode: null,
   ...over,
 });
 
@@ -128,6 +127,5 @@ describe("issue group wording", () => {
 
   it("gives path-less rows one short sentence", () => {
     expect(issueRowSentence({ kind: "no-access", title: "x" })).toBe("You don't have access to this vault");
-    expect(issueRowSentence({ kind: "limit", title: "x" })).toMatch(/plan/);
   });
 });

@@ -72,8 +72,6 @@ export interface HealthRegistryFailure {
 export interface HealthFailures {
   registry: HealthRegistryFailure[];
   content: HealthContentFailure[];
-  /** The plan limit that stopped the run, if one did. */
-  limitCode: string | null;
 }
 
 export interface HealthInput {
@@ -168,12 +166,6 @@ export function serverHostOf(serverUrl: string): string | null {
 }
 
 // ── Failure → issue mapping ───────────────────────────────────────────────────
-
-/** Plan-limit codes. Only two exist server-side today (`auth/auth.ts`), but any
- *  future `*_limit_reached` is the same conversation with the user. */
-export function isLimitCode(code: string | null | undefined): boolean {
-  return typeof code === "string" && code.endsWith("_limit_reached");
-}
 
 /**
  * The per-note ceiling, mirroring `sync/contentUpload.ts` `MAX_NOTE_BYTES` and
@@ -562,57 +554,11 @@ function registerCodeMeaning(code: string | null, kind: "folder" | "note"): stri
   }
 }
 
-function limitIssue(f: HealthRegistryFailure): HealthIssue {
-  const member = f.code === "member_limit_reached";
-  const notes = f.code === "note_limit_reached";
-  return {
-    key: f.docId ?? f.path,
-    docId: f.docId,
-    path: f.path,
-    kind: "limit",
-    severity: "error",
-    title: "Plan limit reached",
-    why: notes ? "This vault reached its sync limit for notes. Upgrade to Team to sync more. Existing notes keep syncing; additional notes stay on this device." : member
-      ? "This vault has as many members as the free plan allows, so the Remote Vault " +
-        "refused. Upgrade to add more."
-      : "This account has as many vaults as the free plan allows, so the Remote Vault " +
-        "refused to create more. Upgrade to keep syncing.",
-    remedies: ["upgrade", "copy-details"],
-    code: f.code,
-    explanation: {
-      meaning: notes ? "This vault reached its sync limit for notes. Your additional notes remain safely on this device." : member
-        ? "The free plan allows a limited number of people in one vault. This vault " +
-          "is at that number, so the Remote Vault turned this request down. Nothing was " +
-          "lost — the work simply stopped at the gate."
-        : "The free plan allows a limited number of vaults per account. This account " +
-          "is at that number, so the Remote Vault would not create another one. Nothing " +
-          "was lost — the work simply stopped at the gate.",
-      next: "Nothing — the Remote Vault will refuse this the same way every time until the limit lifts.",
-      fixes: [
-        notes ? "Upgrade this vault to Team to sync more notes." : member
-          ? "Upgrade this vault to add more people."
-          : "Upgrade to create more vaults.",
-        member
-          ? "Or remove a member you no longer work with, which frees a seat."
-          : "Or delete a vault you no longer use, which frees a slot.",
-      ],
-      safety: "only-here",
-    },
-    facts: [
-      ...pathFact(f.path),
-      { label: "Limit", value: member ? "Members per vault" : "Vaults per account" },
-      { label: "Remote Vault code", value: f.code ?? "unknown", copyable: true },
-    ],
-    autoRetries: false,
-  };
-}
-
 /** Key of the vault-wide "registry pull keeps failing" issue. */
 export const PULL_FAILED_ISSUE_KEY = "registry-pull-failed";
 
 function registryIssue(f: HealthRegistryFailure, ctx: IssueContext): HealthIssue {
   const key = f.docId ?? f.path;
-  if (isLimitCode(f.code)) return limitIssue(f);
   if (f.kind === "pull") {
     return {
       key: PULL_FAILED_ISSUE_KEY,
@@ -1118,23 +1064,6 @@ function buildIssues(
   for (const f of input.failures.registry) {
     if ((f.kind === "note" || f.kind === "folder") && isHeldCreateCode(f.code)) continue;
     push(registryIssue(f, issueCtx));
-  }
-
-  // A limit that stopped the run but was recorded against nothing the user can
-  // see still has to be said once.
-  if (isLimitCode(input.failures.limitCode) && !issues.some((i) => i.kind === "limit")) {
-    push({
-      ...limitIssue({
-        kind: "note",
-        path: "",
-        docId: null,
-        reason: "plan limit",
-        code: input.failures.limitCode,
-      }),
-      key: `limit:${input.failures.limitCode}`,
-      path: null,
-      why: "The Remote Vault stopped this sync run at a plan limit. Upgrade to continue.",
-    });
   }
 
   if (input.syncEnabled && ctx.signedIn && input.syncStatus === "no-access") {

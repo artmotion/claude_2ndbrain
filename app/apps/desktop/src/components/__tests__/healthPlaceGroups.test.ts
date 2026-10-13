@@ -2,7 +2,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LocalOnlyGroup, PRO_FILES_LINE, RemoteOnlyGroup, placeRows } from "../HealthPlaceGroups";
+import { LocalOnlyGroup, RemoteOnlyGroup, placeRows } from "../HealthPlaceGroups";
 import type { HealthActions, HealthInventory } from "../../lib/health/types";
 
 let container: HTMLDivElement;
@@ -58,10 +58,9 @@ describe("placeRows", () => {
 describe("Only on this computer", () => {
   it("puts a checkbox on every row and names the selection in the delete confirm", async () => {
     await act(async () => root.render(createElement(LocalOnlyGroup, {
-      inventory, actions, filesBlocked: true, onOpen: vi.fn(), onShow: vi.fn(), stale: false,
+      inventory, actions, onOpen: vi.fn(), onShow: vi.fn(), stale: false,
     })));
     expect(container.textContent).toContain("Only on this computer · 5 items");
-    expect(container.textContent).toContain(PRO_FILES_LINE);
     expect(button("Select files")).toBeUndefined();
     // Notes, folders and files are all selectable.
     for (const p of ["a.md", "b.md", "Dir", "y.png", "z.pdf"]) {
@@ -85,9 +84,8 @@ describe("Only on this computer", () => {
 
   it("leaves out the folder warning when no folder is selected, and Select all picks everything", async () => {
     await act(async () => root.render(createElement(LocalOnlyGroup, {
-      inventory, actions, filesBlocked: false, onOpen: vi.fn(), onShow: vi.fn(), stale: false,
+      inventory, actions, onOpen: vi.fn(), onShow: vi.fn(), stale: false,
     })));
-    expect(container.textContent).not.toContain(PRO_FILES_LINE);
     await act(async () => (container.querySelector('input[aria-label="Select b.md"]') as HTMLInputElement).click());
     await click("Delete selected (1)");
     const dialog = document.querySelector('[role="alertdialog"]')!;
@@ -103,7 +101,7 @@ describe("Only on the Remote Vault", () => {
   it("selects files only and offers bulk download and removal", async () => {
     await act(async () => root.render(createElement(RemoteOnlyGroup, {
       inventory: { ...inventory, serverOnlyFiles: ["s.pdf", "t.png"] },
-      actions, downloadsBlocked: false, showCheckAgain: true, stale: false,
+      actions, showCheckAgain: true, stale: false,
     })));
     expect(container.textContent).toContain("Only on the Remote Vault · 3 items");
     expect(container.querySelector('input[aria-label="Select r.md"]')).toBeNull();
@@ -118,17 +116,5 @@ describe("Only on the Remote Vault", () => {
     expect(actions.removeServerFile).not.toHaveBeenCalled();
     await click("Remove from server", document.querySelector('[role="alertdialog"]')!);
     expect(actions.removeServerFile).toHaveBeenCalledWith("s.pdf");
-  });
-
-  it("uses the shared Team line and hides downloads when blocked", async () => {
-    await act(async () => root.render(createElement(RemoteOnlyGroup, {
-      inventory, actions, downloadsBlocked: true, showCheckAgain: false, stale: false,
-    })));
-    expect(container.textContent).toContain(PRO_FILES_LINE);
-    expect(button("Download")).toBeUndefined();
-    expect(button("Download all")).toBeUndefined();
-    await act(async () => (container.querySelector('input[aria-label="Select s.pdf"]') as HTMLInputElement).click());
-    expect(button("Download selected (1)")).toBeUndefined();
-    expect(button("Remove from server (1)")).toBeDefined();
   });
 });

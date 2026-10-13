@@ -1,26 +1,22 @@
 import { createHash, randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/http/app.js";
 import { testAppDeps } from "./helpers/app.js";
 import { pool } from "../src/db/pool.js";
 import { resetDb } from "./helpers/db.js";
 import { signUp, type TestUser } from "./helpers/auth.js";
 import { seedMember, seedOrg, seedVault, seedVaultGrant } from "./helpers/seed.js";
-import { config } from "../src/config.js";
 
 /**
- * Per-vault attachment storage quota.
- *
- * The accounting remains available to members, while uploads on a
- * billing-enabled server first require a Pro vault. A self-hosted server must
- * never meet a quota, and a Pro vault is unlimited.
+ * Per-vault attachment storage accounting. There is no quota: uploads never
+ * meet a storage limit, and `GET /storage` reports usage with a null limit.
  */
 const app = createApp(testAppDeps());
 
 const PNG = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
 ]);
-const LIMIT_BYTES = config.freeMaxStorageMb * 1024 * 1024;
+const LIMIT_BYTES = 1024 * 1024 * 1024;
 
 let owner: TestUser;
 let orgId = "";
@@ -69,7 +65,7 @@ afterAll(async () => {
   await pool.end();
 });
 
-describe("storage quota", () => {
+describe("storage accounting", () => {
   beforeEach(async () => {
     await resetDb();
     owner = await signUp(`owner-${randomUUID().slice(0, 8)}@quota.com`);
@@ -79,21 +75,7 @@ describe("storage quota", () => {
     await seedVaultGrant(orgId, "edit");
   });
 
-  afterEach(() => {
-    delete process.env.POLAR_ACCESS_TOKEN;
-  });
-
-  it("enforces the free storage limit for embedded attachments", async () => {
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
-    await occupy(LIMIT_BYTES);
-
-    const res = await intent(owner, newUpload());
-    expect(res.status).toBe(402);
-    expect(await res.json()).toMatchObject({ code: "storage_limit_reached" });
-  });
-
   it("counts pending rows in reported storage", async () => {
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
     await occupy(LIMIT_BYTES, "pending");
     const body = (await (await storage(owner)).json()) as {
       usedBytes: number;
@@ -103,29 +85,14 @@ describe("storage quota", () => {
     expect(body.pendingBytes).toBe(LIMIT_BYTES);
   });
 
-  it("never 402s with billing off, however full the vault is", async () => {
+  it("never refuses an upload, however full the vault is", async () => {
     await occupy(LIMIT_BYTES * 4);
     const res = await intent(owner, newUpload());
     expect(res.status).toBe(200);
   });
 
-  it("never 402s for a vault with an active subscription", async () => {
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
-    await occupy(LIMIT_BYTES * 4);
-    await pool.query(
-      `INSERT INTO subscriptions (organization_id, plan, status) VALUES ($1, 'pro', 'active')`,
-      [orgId],
-    );
-    expect((await intent(owner, newUpload())).status).toBe(200);
-  });
-
-  it("allows embedded uploads in a Free vault without legacy account flags", async () => {
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
-    expect((await intent(owner, newUpload())).status).toBe(200);
-  });
-
   describe("GET /api/vaults/:vaultId/storage", () => {
-    it("reports usage and a null limit when nothing caps the vault", async () => {
+    it("reports usage and a null limit", async () => {
       await occupy(1000);
       await occupy(500, "pending");
       const body = (await (await storage(owner)).json()) as Record<string, unknown>;
@@ -133,16 +100,9 @@ describe("storage quota", () => {
         usedBytes: 1500,
         pendingBytes: 500,
         blobCount: 2,
-        // Unlimited is `null`, not a huge number, so a client renders
-        // "unlimited" rather than a meaningless bar.
+        // Always null (unlimited); kept for older desktops.
         limitBytes: null,
       });
-    });
-
-    it("reports the free-tier limit when billing is on", async () => {
-      process.env.POLAR_ACCESS_TOKEN = "test-token";
-      const body = (await (await storage(owner)).json()) as { limitBytes: number };
-      expect(body.limitBytes).toBe(LIMIT_BYTES);
     });
 
     it("is member-gated, not write-gated", async () => {

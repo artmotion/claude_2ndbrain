@@ -9,7 +9,6 @@ import { useStore } from "../store";
 import type { CheckFocus } from "./HealthChecks";
 import type { VaultCheckId } from "../lib/health/types";
 import { AssistantLocalRepair } from "./AssistantLocalRepair";
-import { UpgradeDialog } from "./UpgradeDialog";
 
 export function AiSettingsTab({ onGoToGeneral, onClose, requestedCheck }: { onGoToGeneral: () => void; onClose: () => void; requestedCheck?: CheckFocus | null }) {
   const notes = useStore(s => s.titles);
@@ -22,8 +21,7 @@ export function AiSettingsTab({ onGoToGeneral, onClose, requestedCheck }: { onGo
     if (id && id !== "sync") setFocus({ id: id as VaultCheckId, n: Date.now() });
     tools.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const [upgrade, setUpgrade] = useState(false);
-  const snapshot = useVaultHealth({ onOpenUpgrade: () => setUpgrade(true) });
+  const snapshot = useVaultHealth();
   const counts = snapshot.report.counts;
   const diagnostics = assistantObservations(snapshot);
   const waiting = useRef<{ resolve: (value: DiagnosticInput) => void; reject: (error: Error) => void; at: number | undefined; timeout: ReturnType<typeof setTimeout> } | null>(null);
@@ -62,9 +60,8 @@ export function AiSettingsTab({ onGoToGeneral, onClose, requestedCheck }: { onGo
         }
       }
       throw new Error("This finding changed. Run diagnostics again.");
-    }} brokenLinkNotes={brokenLinkNotes} diagnostics={diagnostics} onUpgrade={() => setUpgrade(true)} onGoToGeneral={onGoToGeneral} />
+    }} brokenLinkNotes={brokenLinkNotes} diagnostics={diagnostics} onGoToGeneral={onGoToGeneral} />
     {focus && <div ref={tools}><button className="secondary" onClick={() => setFocus(null)}>Close finding</button><HealthView key={`${path}:${focus.id}`} mode="finding" findingId={focus.id} snapshot={snapshot} notes={notes} vaultPath={path} onGoToGeneral={onGoToGeneral} onClose={onClose} /></div>}
     {proposal && <AssistantLocalRepair key={`${path}:${proposal}`} id={proposal} snapshot={snapshot} onClose={() => setProposal(null)} />}
-    {upgrade && <UpgradeDialog onClose={() => setUpgrade(false)} />}
   </>;
 }

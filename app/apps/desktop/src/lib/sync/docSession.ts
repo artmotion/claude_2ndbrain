@@ -628,7 +628,6 @@ export class SyncManager implements InboundHost {
    *  (`store.fileSyncState`), keyed by path. */
   private onFileState?: (states: Record<string, DocSyncState>) => void;
   /** Explicit server verdict that this vault's attachments stay local. */
-  private onAttachmentEntitlement?: (blocked: boolean) => void;
   /** The content upload for the current scope, while one is running. */
   private uploader: ContentUploader | null = null;
   /**
@@ -1188,10 +1187,6 @@ export class SyncManager implements InboundHost {
     this.onFileState = cb;
   }
 
-  setAttachmentEntitlementListener(cb: ((blocked: boolean) => void) | undefined): void {
-    this.onAttachmentEntitlement = cb;
-  }
-
   /** Map the vault channel's status onto the app-wide SyncStatus vocabulary.
    *  The vault channel has no per-note "read-only" notion — that only applies
    *  once a view-only note is open, and then the note's provider takes over. */
@@ -1398,19 +1393,6 @@ export class SyncManager implements InboundHost {
     this.attachments?.forgetFile(path);
     await this.pullRegistry(scope);
     if (scope.isCurrent()) this.onRegistryChanged?.();
-  }
-
-  /** Billing refresh confirmed a plan change; let the binary mirror ask again. */
-  recheckAttachmentEntitlement(): void {
-    this.attachments?.resetEntitlement();
-    this.attachments?.scheduleReconcile();
-  }
-
-  /** Ask the server again without clearing an existing refusal. Billing
-   * refreshes use this to learn a policy change in a running client; a blocked
-   * mirror remains blocked until a confirmed Team transition resets it. */
-  checkAttachmentEntitlement(): void {
-    this.attachments?.scheduleReconcile();
   }
 
   /** Coalesce a burst of per-note mapping changes into one publish. */
@@ -5971,8 +5953,7 @@ export class SyncManager implements InboundHost {
       !this.serverTooOld &&
       this.pullFailure() == null &&
       this.permanentFailures.size === 0 &&
-      !this.registry.hasFailures() &&
-      this.registry.limitCode() == null;
+      !this.registry.hasFailures();
     progress.phase(clean ? "done" : "error");
     progress.flush();
   }
@@ -6066,7 +6047,6 @@ export class SyncManager implements InboundHost {
       permanent?: boolean;
       kind?: UploadFailure["kind"];
     }>;
-    limitCode: string | null;
   } {
     // Permanent failures are remembered across runs (see the field), so they are
     // reported from there; the live uploader's list covers this run's transient
@@ -6133,7 +6113,6 @@ export class SyncManager implements InboundHost {
     return {
       registry,
       content,
-      limitCode: this.registry.limitCode(),
     };
   }
 
@@ -7100,9 +7079,6 @@ export class SyncManager implements InboundHost {
       // vault's rows with the old vault's paths.
       onFileStates: (states) => {
         if (scope.isCurrent()) this.onFileState?.(states);
-      },
-      onEntitlementBlocked: (blocked) => {
-        if (scope.isCurrent()) this.onAttachmentEntitlement?.(blocked);
       },
       // …and the counted half of the same fact, on the vault's one progress
       // reporter. Scope-guarded inside the handlers, for the same reason.

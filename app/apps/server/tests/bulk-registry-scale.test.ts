@@ -47,7 +47,6 @@ describe("registration batch query count", () => {
 
   afterEach(() => vi.unstubAllEnvs());
   beforeEach(async () => {
-    vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "self-hosted");
     await resetDb();
     owner = await signUp("owner@scale-reg.test");
     org = (await createOrg(owner, "Reg Co", "reg-co")).id;

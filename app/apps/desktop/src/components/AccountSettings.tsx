@@ -24,7 +24,6 @@ import {
 } from "../lib/profileAvatar";
 import { imageFileToSquareDataUrl } from "../lib/squareImage";
 import { InstalledAgentsStatus } from "./DashboardAgentRunner";
-import { AccountPlanTab } from "./AccountPlanTab";
 import { AccountVaultsTab } from "./AccountVaultsTab";
 import { Avatar } from "./Avatar";
 import { serverFailureMessage } from "./serverFailureMessage";
@@ -70,16 +69,6 @@ const ACCOUNT_TABS: Array<{ id: AccountTab; label: string; icon: React.ReactNode
       <Icon>
         <circle cx="12" cy="12" r="9" />
         <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none" />
-      </Icon>
-    ),
-  },
-  {
-    id: "plan",
-    label: "Plan & Billing",
-    icon: (
-      <Icon>
-        <rect x="2" y="5" width="20" height="14" rx="2" />
-        <path d="M2 10h20" />
       </Icon>
     ),
   },
@@ -193,8 +182,6 @@ export function AccountSettings({
             <ProfileTab />
           ) : tab === "status" ? (
             <StatusTab />
-          ) : tab === "plan" ? (
-            <AccountPlanTab />
           ) : tab === "vaults" ? (
             <AccountVaultsTab />
           ) : tab === "appearance" ? (

@@ -52,7 +52,6 @@ function actions(): HealthActions {
     openNote: vi.fn(),
     reveal: vi.fn(async () => {}),
     deleteNote: vi.fn(async () => {}),
-    openUpgrade: vi.fn(),
     requestSignIn: vi.fn(),
     copyDiagnostics: vi.fn(async () => ""),
     exportCopy: vi.fn(async () => null),
@@ -421,61 +420,6 @@ describe("HealthView", () => {
     // Page copy says "Remote Vault"; the only "server" left is the existing
     // per-file "Remove from server" action, now visible without a toggle.
     expect(html.split("Remove from server").join("")).not.toMatch(/\bserver\b/i);
-  });
-
-  it("explains plan-blocked format notes without presenting them as a failed retry", () => {
-    const html = render(
-      snapshot({
-        report: {
-          ...localReport,
-          verdict: "healthy",
-          headline: "All 6,974 notes are on the Remote Vault",
-          counts: {
-            total: 6_974,
-            synced: 6_974,
-            pending: 0,
-            failed: 0,
-            unsynced: 0,
-            unreported: 0,
-          },
-          serverHost: "api.secondbrain.example",
-        },
-        stats: {
-          ...stats,
-          notes: { count: 6_974, bytes: stats.notes.bytes, empty: 0 },
-          otherFiles: { count: 160, bytes: stats.otherFiles.bytes },
-        },
-        inventory: {
-          local: { notes: 6_974, folders: 1, files: 160, total: 7_135 },
-          localReady: true,
-          server: { notes: 6_974, folders: 1, files: 0, total: 6_975 },
-          serverState: "current",
-          deviceOnlyNotes: [],
-          serverOnlyNotes: [],
-          deviceOnlyFolders: [],
-          serverOnlyFolders: [],
-          deviceOnlyFiles: Array.from({ length: 160 }, (_, i) => `Media/file-${i}.pdf`),
-          serverOnlyFiles: [],
-        },
-      }),
-      { standaloneFileSyncBlocked: true, showAttachmentUpgrade: true },
-    );
-
-    expect(html).not.toContain(">Healthy<");
-    expect(html).not.toContain("All 6,974 notes are on the Remote Vault");
-    expect(html).toContain("<h4>Only on this computer · 160 items</h4>");
-    expect(html).toContain("PDFs, images and other files need Team to sync. Notes and folders sync on every plan.");
-    expect(html).not.toMatch(/other formats?/i);
-    expect(html).toContain("Select all");
-    expect(html).not.toContain("Select files");
-    expect(html.match(/class="health-pro-tag">Team</g)?.length).toBe(20);
-    expect(html).toContain("Show more (140 remaining)");
-    // The container owns the single upgrade CTA in the top attachment banner.
-    expect(html).not.toContain("Upgrade to Team");
-    expect(html).not.toContain(">Check again<");
-    expect(html).not.toContain("health-difference-side");
-    expect(html).not.toContain("Nothing needs attention");
-    expect(html).not.toContain("data-zero");
   });
 
   it("labels an offline server inventory as cached", () => {

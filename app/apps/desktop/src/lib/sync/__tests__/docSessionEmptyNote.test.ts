@@ -60,7 +60,6 @@ const fakeRegistry = vi.hoisted(() => {
     hasFailures: vi.fn(() => false),
     heldRefusals: vi.fn((): unknown[] => []),
     retryHeldRefusals: vi.fn(() => false),
-    limitCode: vi.fn((): string | null => null),
     materialized: new Set<string>(),
     consumeMaterialized: vi.fn((relPath: string) => reg.materialized.delete(relPath)),
     deletePath: vi.fn(async (_path: string) => {}),

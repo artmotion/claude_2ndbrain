@@ -5,10 +5,6 @@ import { Algorithm, hash as argonHash, verify as argonVerify } from "@node-rs/ar
 import pg from "pg";
 import { config } from "../config.js";
 import { BRAND_NAME } from "../brand.js";
-import { canAddMember, canCreateOrganization } from "../billing/entitlements.js";
-import { checkInviteSeat, checkJoinSeat, seatRefusalBody, teamModel, type SeatRefusal } from "../billing/plan.js";
-import { ensureAccountForOrg } from "../billing/accounts.js";
-import { onMembershipTrimmed } from "../billing/lapse.js";
 import { announceMemberJoined, announceMemberRemoved, announceOrgChanged } from "../sync/member-events.js";
 import { dispatchMail, emailEnabled } from "../email/mailer.js";
 import { verifyEmailEmail } from "../email/templates.js";
@@ -69,22 +65,6 @@ export const RESET_TOKEN_TTL_SECONDS = 60 * 60;
 // change under a running server, and a conditional hook is what makes Better
 // Auth report "Reset password isn't enabled" instead of pretending to send.
 const mailerOn = emailEnabled();
-
-/**
- * Does this org already hold a live invitation for this address? Used to let a
- * re-invite through the seat cap: it REPLACES the pending row (see
- * `cancelPendingInvitationsOnReInvite`), so no new seat is being taken.
- */
-async function hasPendingInvitation(organizationId: string, email: string): Promise<boolean> {
-  const { rows } = await authPool.query(
-    `SELECT 1 FROM invitation
-      WHERE "organizationId" = $1 AND lower(email) = lower($2)
-        AND status = 'pending' AND "expiresAt" > now()
-      LIMIT 1`,
-    [organizationId, email],
-  );
-  return rows.length > 0;
-}
 
 export const auth = betterAuth({
   appName: BRAND_NAME,
@@ -242,12 +222,9 @@ export const auth = betterAuth({
       invitationExpiresIn: config.invitationExpiresInSeconds, // INVITATION_EXPIRES_HOURS, default 7 days
       // Better Auth's own delete-organization endpoint is closed off entirely,
       // the same way `beforeUpdateMemberRole` closes off role changes below.
-      // DELETE /api/orgs/:orgId (routes/orgs.ts) is the ONLY path: it cancels
-      // the vault's subscription at the provider first and refuses to delete
-      // anything if that fails (#109/#111), purges the FK-less CRDT stores,
-      // force-closes live sockets and broadcasts the ACL change. Better Auth's
-      // endpoint does none of that — it would drop the org row and leave the
-      // provider billing a vault nobody can reach.
+      // DELETE /api/orgs/:orgId (routes/orgs.ts) is the ONLY path: it purges
+      // the FK-less CRDT stores, force-closes live sockets and broadcasts the
+      // ACL change. Better Auth's endpoint does none of that.
       disableOrganizationDeletion: true,
       // Inviting an address that is already pending re-sends instead of
       // failing with "already invited": the old row is canceled and a fresh
@@ -260,12 +237,6 @@ export const auth = betterAuth({
       // `POST /api/invitations/:id/send` (routes/invitations.ts), which sends
       // synchronously and answers sent / failed — and falls back to the
       // copyable link when it failed.
-      // Free-tier enforcement (spec: subscription billing). These run inside
-      // Better Auth's create-organization / create-invitation endpoints and
-      // throw an APIError with statusCode 402 whose message carries the
-      // contract token ("vault_limit_reached" / "member_limit_reached").
-      // The desktop keys off HTTP 402 + the token; a no-op when billing is off
-      // (the entitlement helpers short-circuit to "allowed").
       organizationHooks: {
         // The vault icon (`logo`) is the only org field the desktop updates;
         // validate it on both writes (see auth/vault-icon.ts).
@@ -293,59 +264,6 @@ export const auth = betterAuth({
               error: "invalid_vault_icon",
             });
           }
-          const { allowed, limit } = await canCreateOrganization(data.user.id);
-          if (!allowed) {
-            throw new APIError("PAYMENT_REQUIRED", {
-              message: "vault_limit_reached",
-              error: "vault_limit_reached",
-              limit,
-            });
-          }
-        },
-        // Attach the new vault to its owner's billing account (migration 051),
-        // so seats and free limits count it from the start. Billing also
-        // attaches lazily, so a failure here only logs.
-        afterCreateOrganization: async ({ organization }) => {
-          if (!organization) return;
-          try {
-            await ensureAccountForOrg(authPool, organization.id);
-          } catch (err) {
-            console.error(
-              `billing: could not attach vault ${organization.id} to an account:`,
-              (err as Error).message,
-            );
-          }
-        },
-        beforeCreateInvitation: async (data) => {
-          // A re-invite replaces a pending row rather than adding a seat, so it
-          // must pass even at the cap — otherwise a full free vault could never
-          // re-send a lost invitation.
-          if (await hasPendingInvitation(data.organization.id, data.invitation.email)) return;
-          if (teamModel()) {
-            // Soft gate: people + reserved seats + this address must fit the
-            // account's limit (Free people cap, or Team purchased seats).
-            const refused = await checkInviteSeat(authPool, data.organization.id, data.invitation.email);
-            if (refused) throw seatError(refused);
-            return;
-          }
-          const { allowed, limit } = await canAddMember(data.organization.id);
-          if (!allowed) {
-            throw new APIError("PAYMENT_REQUIRED", {
-              message: "member_limit_reached",
-              error: "member_limit_reached",
-              limit,
-            });
-          }
-        },
-        // Hard gate at acceptance (team model only; vault mode never gated it):
-        // members + 1 must fit, and someone already on the account takes no seat.
-        beforeAcceptInvitation: async (data) => {
-          if (!teamModel()) return;
-          const refused = await checkJoinSeat(authPool, data.organization.id, {
-            userId: data.user.id,
-            email: data.user.email,
-          });
-          if (refused) throw seatError(refused);
         },
         // A re-invite (Resend) answers an "expired unaccepted" Activity notice
         // for that address (#268): tell open feeds so it drops without a poll.
@@ -374,21 +292,15 @@ export const auth = betterAuth({
         // (The join-code path bypasses Better Auth and announces itself; org
         // creation adds the owner via `afterAddMember`, which we deliberately
         // don't hook — no one should be "welcomed" to their own new vault.)
-        // Seats/vaults shrank: a lapsed account trimmed back under the Free
-        // limits is lifted (billing/lapse.ts). Runs after Better Auth's write;
-        // `onMembershipTrimmed` never throws.
         afterRemoveMember: async ({ organization, member }) => {
-          await onMembershipTrimmed(authPool, organization.id);
           // Better Auth's own remove-member endpoint: close the removed user's
           // live vault-channel sockets like DELETE /api/orgs/:orgId/members/:userId.
           await announceMemberRemoved(organization.id, member.userId, "removed");
         },
-        afterCancelInvitation: async ({ organization, invitation }) => {
-          await onMembershipTrimmed(authPool, organization.id);
+        afterCancelInvitation: async ({ invitation }) => {
           await announceInvitationGone(invitation.id, { email: invitation.email });
         },
-        afterRejectInvitation: async ({ organization, invitation, user }) => {
-          await onMembershipTrimmed(authPool, organization.id);
+        afterRejectInvitation: async ({ invitation, user }) => {
           await announceInvitationGone(invitation.id, { userId: user.id });
         },
         afterAcceptInvitation: async (data) => {
@@ -441,10 +353,3 @@ export const auth = betterAuth({
 });
 
 export type Auth = typeof auth;
-
-/** 402 for a refused seat, in Better Auth's error envelope. `message` stays the
- *  bare token for member_limit_reached (old desktops match it) and is a full
- *  sentence for seat_limit_reached. */
-function seatError(refused: SeatRefusal): APIError {
-  return new APIError("PAYMENT_REQUIRED", seatRefusalBody(refused) as { message: string });
-}

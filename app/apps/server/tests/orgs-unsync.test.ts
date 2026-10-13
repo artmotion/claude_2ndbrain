@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/http/app.js";
 import { recordingAppDeps } from "./helpers/app.js";
-import { makeFakeProvider } from "./helpers/billing-provider.js";
 import { pool } from "../src/db/pool.js";
 import { resetDb } from "./helpers/db.js";
 import { authHeaders, createOrg, signUp, type TestUser } from "./helpers/auth.js";
@@ -21,9 +20,8 @@ import {
  * and `GET /api/orgs/:orgId/status`.
  *
  * The unsync runs the SAME teardown as `DELETE /api/orgs/:orgId`, so these
- * suites deliberately re-assert the delete's contract (billing first, the
- * tombstone, the hand-purge of the FK-less tables) against the new route: the
- * shared helper is what keeps them equal, and this is what notices if someone
+ * suites deliberately re-assert the delete's contract (the hand-purge of the
+ * FK-less tables) against the new route: the shared helper is what keeps them equal, and this is what notices if someone
  * forks it.
  *
  * The listings suite at the bottom is the R1 safety property: after a vault is
@@ -32,8 +30,7 @@ import {
  * planner delete their files.
  */
 
-const fakeProvider = makeFakeProvider();
-const rec = recordingAppDeps({ billingProvider: fakeProvider });
+const rec = recordingAppDeps();
 const app = createApp(rec.deps);
 
 function req(
@@ -141,7 +138,6 @@ describe("unsync preview", () => {
   beforeEach(async () => {
     await resetDb();
     rec.reset();
-    fakeProvider.reset();
   });
 
   it("counts what the teardown would destroy, excluding the owner and trashed notes", async () => {
@@ -158,7 +154,6 @@ describe("unsync preview", () => {
       publicLinks: 1,
       mcpTokens: 1,
       checkpoints: 1,
-      subscription: null,
     });
     // Pure SELECTs: the preview must never be the thing that breaks a vault.
     expect(await countRows("SELECT count(*)::bigint AS c FROM notes", [])).toBe(2);
@@ -187,7 +182,6 @@ describe("unsync", () => {
   beforeEach(async () => {
     await resetDb();
     rec.reset();
-    fakeProvider.reset();
   });
 
   it("removes every trace of the vault and reports the preview's counts", async () => {
@@ -206,7 +200,6 @@ describe("unsync", () => {
       notes: preview.notes,
       files: preview.files,
       members: preview.members,
-      subscription: null,
     });
 
     const gone: Array<[string, string, unknown[]]> = [
@@ -302,97 +295,10 @@ describe("unsync", () => {
   });
 });
 
-describe("unsync and the subscription", () => {
-  beforeEach(async () => {
-    await resetDb();
-    rec.reset();
-    fakeProvider.reset();
-    process.env.POLAR_ACCESS_TOKEN = "test-polar-access-token"; // billing ON
-  });
-  afterEach(() => {
-    delete process.env.POLAR_ACCESS_TOKEN;
-  });
-
-  async function seedSubscription(orgId: string, subId: string): Promise<void> {
-    await pool.query(
-      `INSERT INTO subscriptions (organization_id, provider, provider_customer_id,
-         provider_subscription_id, plan, status, current_period_end,
-         cancel_at_period_end, interval, amount, currency)
-       VALUES ($1, 'polar', 'cus_test', $2, 'pro', 'active', $3, false, 'month', 1000, 'usd')`,
-      [orgId, subId, new Date(Date.now() + 30 * 86400_000)],
-    );
-  }
-
-  it("cancels at period end first and leaves the row as a tombstone", async () => {
-    const f = await seedFullVault("sub1");
-    await seedSubscription(f.orgId, "sub_unsync1");
-
-    // The preview reports the live subscription so the dialog can say when Pro ends.
-    const preview = (await (
-      await req("GET", `/api/orgs/${f.orgId}/unsync-preview`, { user: f.owner })
-    ).json()) as { subscription: { status: string; cancelAtPeriodEnd: boolean } | null };
-    expect(preview.subscription?.status).toBe("active");
-    expect(preview.subscription?.cancelAtPeriodEnd).toBe(false);
-
-    const res = await req("POST", `/api/orgs/${f.orgId}/unsync`, {
-      user: f.owner,
-      body: { confirmName: f.orgName },
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      subscription: { cancelAtPeriodEnd: boolean; currentPeriodEnd: string | null } | null;
-    };
-    // period_end, not revoke: the owner already paid for this month.
-    expect(fakeProvider.canceled).toEqual([{ id: "sub_unsync1", mode: "period_end" }]);
-    expect(body.subscription?.cancelAtPeriodEnd).toBe(true);
-
-    const { rows } = await pool.query<{
-      deleted_at: Date | null;
-      org_name: string | null;
-      owner_user_id: string | null;
-    }>(
-      "SELECT deleted_at, org_name, owner_user_id FROM subscriptions WHERE organization_id = $1",
-      [f.orgId],
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0].deleted_at).not.toBeNull();
-    expect(rows[0].org_name).toBe(f.orgName);
-    expect(rows[0].owner_user_id).toBe(f.owner.userId);
-  });
-
-  it("aborts with 502 and destroys nothing when the provider refuses", async () => {
-    const f = await seedFullVault("sub2");
-    await seedSubscription(f.orgId, "sub_unsync2");
-    fakeProvider.failCancel = new Error("polar is down");
-
-    const res = await req("POST", `/api/orgs/${f.orgId}/unsync`, {
-      user: f.owner,
-      body: { confirmName: f.orgName },
-    });
-    expect(res.status).toBe(502);
-    const body = (await res.json()) as { error: string; message: string; detail: string };
-    expect(body.error).toBe("subscription_cancel_failed");
-    expect(body.message).toBe(
-      "We couldn't stop this vault's subscription. Nothing was deleted. Try again, or cancel it from Billing first.",
-    );
-    expect(body.detail).toContain("polar is down");
-
-    // A provider outage must not cost someone a vault while Polar keeps charging.
-    expect(await countRows("SELECT count(*)::bigint AS c FROM organization WHERE id = $1", [f.orgId])).toBe(1);
-    expect(await countRows("SELECT count(*)::bigint AS c FROM notes WHERE vault_id = $1", [f.vaultId])).toBe(2);
-    expect(
-      await countRows(`SELECT count(*)::bigint AS c FROM session WHERE "activeOrganizationId" = $1`, [f.orgId]),
-    ).toBeGreaterThan(0);
-    expect(rec.aclBroadcasts).toEqual([]);
-    expect(rec.disconnected).toEqual([]);
-  });
-});
-
 describe("vault status probe", () => {
   beforeEach(async () => {
     await resetDb();
     rec.reset();
-    fakeProvider.reset();
   });
 
   it("answers 200 for a member, 403 for a non-member and 404 once the vault is gone", async () => {
@@ -435,7 +341,6 @@ describe("R1 — a dead vault's listings refuse, they never answer empty", () =>
   beforeEach(async () => {
     await resetDb();
     rec.reset();
-    fakeProvider.reset();
   });
   afterAll(async () => {
     await pool.end();

@@ -19,16 +19,9 @@ tags: [secondbrain, status, roadmap]
   port at `/sync` (single-port topology), and the repo ships a Dockerfile, a Docker Compose bundle (`deploy/compose/`,
   migrations run before the server starts) and [[DEPLOY]]. This fork has no hosted
   backend: the owner self-hosts it. Windows builds come from `.github/workflows/windows-build.yml`.
-- **Billing:** 🟢 Per-vault Pro via Polar, with the full subscription lifecycle (2026-09-09, #109–#111):
-  deleting a vault cancels at period end before it deletes, subscriptions survive as tombstones, and an
-  owner can transfer one between their vaults from Vault Settings → Billing.
-  **2026-10-07 (branch `feat/team-seat-billing`):** Free + Team pricing behind `BILLING_MODEL=team`
-  (default `vault` until the production flip). Free: 2 people per account, 1 synced vault, MCP
-  included, no Assistant, no standalone file sync. Team: $10 per seat per month or $110 per seat
-  per year, minimum 3 seats, unlimited vaults on one account, managed in Account Settings → Plan &
-  Usage. A lapsed account syncs read-only; local files stay editable. Per-vault transfer is retired
-  under the Team model (`transfer_retired`); existing subscribers keep their price through a Polar
-  discount.
+- **Billing:** ⬜ Removed in this fork (2026-10-13). There is no hosted service, so every server
+  behaves as the old billing-disabled self-host: no plans, seats, quotas or 402 refusals; the
+  Assistant and standalone-file sync are always available. Migration 056 drops the billing tables.
 - **Offline reconciliation:** 🟡 In review (2026-09-26, branch `feat/offline-reconciliation`): inbound
   deletes/revocations gate on a server-acknowledged state vector (unsent edits get a recovery copy
   first), same-path creates become two notes, closed-app renames keep their id, a once-per-session
@@ -246,7 +239,7 @@ Six changes that together make a vault something a team can actually govern.
   email (= every password sign-up), so the in-app inbox had been empty for almost everyone.
   `GET /api/invitations/mine` reads the table directly; the desktop uses it first.
 - [x] **Join code = email invite**: redeeming a code consumes a pending invitation for the same address
-  (invited role honoured, invitation marked accepted, seat not double-counted).
+  (invited role honoured, invitation marked accepted).
 
 ### Phase 4: Polish / upgrades _(deferred)_ ⬜
 - [ ] Structural rich-text CRDT (y-prosemirror / `Y.XmlFragment`) for full WYSIWYG.
@@ -268,25 +261,25 @@ Six changes that together make a vault something a team can actually govern.
 - **Yjs at scale:** some teams report pain; not a v0.1 concern. Loro is the re-evaluation candidate
   if on-disk CRDT size becomes a cost.
 
-## Housekeeper Pro preview
+## Housekeeper preview
 
 - Reviewed broken-wikilink suggestions in Vault Settings → AI, using the
   OpenRouter SDK with Jev Decisions or a configurable structured-output chat model.
-- Strict server-side Pro/membership gates on status, scan, apply and undo;
-  billing-disabled mode does not bypass this commercial feature.
+- Strict server-side membership gates on status, scan, apply and undo (the
+  former Pro gate went with billing, 2026-10-13).
 - Permission-filtered candidates, explicit excerpt-sharing consent, exact-change
   previews, revision-guarded Yjs writes, and guarded short-lived Undo.
 - Commercial engine under `ee/`; open-core builds remain independent. Provider
-  credentials and a Pro vault (Team under `BILLING_MODEL=team`) are required for live use. See [setup and preview
+  credentials are required for live use. See [setup and preview
   limits](HOUSEKEEPER.md). Real-provider quality evaluation remains outstanding.
 
 The Assistant now lives in **AI** with a compact provider card, user-owned
 OpenRouter keys in the OS keychain, Jev 1.13 as default, and a custom model picker.
 Diagnostic review prioritizes all 15 local checks using counts only. Local preview
-has an explicit development + loopback-database override; production remains Pro.
+needs no plan.
 
 Advanced diagnostics moved into AI’s Smart diagnostics centre. Existing manual
-checks and repair confirmations remain Free; the Pro Assistant chooses priorities and
+checks and repair confirmations stay local; the Assistant chooses priorities and
 allowlisted next steps in one batched call. Suggested index rebuilds and sync
 retries recheck access and current findings before using existing actions.
 
@@ -303,22 +296,13 @@ Oversized-note backups do not split content or resolve size limits; permission
 requests do not grant access. These distinctions are explicit in the action UI.
 
 The Assistant now ships under Apache-2.0 in the standard server package rather than
-`ee/`. Billing-disabled self-hosters have access with their own model key;
-billing-enabled vaults retain the Pro gate. Free synced vaults on billing-enabled
-servers accept up to 20,000 live notes; extra registrations return
-`note_limit_reached` and local files remain intact. Existing identities still
-reconcile. Registry batches and MCP creation share a per-vault advisory lock for
-capacity checks. The sync banner links to the upgrade page with updated benefits.
-(2026-10-07: under `BILLING_MODEL=team` the Free cap is the hidden `ABUSE_MAX_NOTES` ceiling,
-100,000 per vault by default, and the Assistant requires Team instead of Pro.)
+`ee/`; everyone has access with their own model key. (The note cap and plan
+gate described here earlier were removed with billing, 2026-10-13.)
 Sign-in uses a body portal. The sidebar alone says AI (Beta), with an accented
 sparkle; provider settings use a warm amber card and a key-ready indicator.
 
-Deployment access policy is now independent of billing. `SECONDBRAIN_DEPLOYMENT=self-hosted`
-keeps the Assistant available when operator billing is enabled, disabled, or configured
-later. `cloud` (the fail-closed default) requires Pro even without payment
-credentials and enforces the Free note cap. Self-hosting `.env.example` opts in
-explicitly; no managed configuration is stored in this repository.
+The `SECONDBRAIN_DEPLOYMENT` access policy was removed with billing (2026-10-13): it
+only decided the Assistant's plan gate.
 
 ## Members and access page (2026-10-04)
 
@@ -366,7 +350,7 @@ and hover/pressed colours are one accent tint (`--bg-hover`/`--bg-active`).
   checkpoint within 1 h; files and attachments are pinned per checkpoint (migration 047) and restored
   under their original ids on revert.
 - **One-step file upload (server only).** A blob intent can carry the file's registration and
-  `complete` creates the `files` row with the bytes (migration 048, `files-with-bytes`); the Pro gate
+  `complete` creates the `files` row with the bytes (migration 048, `files-with-bytes`); every gate
   runs before any row exists. The desktop does not use it yet.
 - **`GET /health`** reports `version`, `minDesktopVersion` and `features`; `[sync-metrics]` log lines
   count seeds, `ready.empty`/`ready.behind` sizes and structure-only checkpoint notes.

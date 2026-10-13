@@ -251,23 +251,6 @@ describe("per-item outcomes", () => {
 });
 
 describe("request-level failures", () => {
-  it("a 402 stops the pre-registration and refuses nothing", async () => {
-    const { deps, rec } = harness(binaries(BATCH_MAX_FILES + 30), {
-      throwOnBatch: Object.assign(new Error("full"), {
-        status: 402,
-        code: "vault_limit_reached",
-      }),
-    });
-    await new AttachmentSync(deps).reconcile();
-
-    // One request, then it stops — it does not grind through the chunks.
-    expect(rec.batches).toHaveLength(1);
-    // Nothing is written off as refused: every file falls through to the
-    // per-file ask it would have taken before this optimisation existed.
-    expect(rec.singles).toHaveLength(BATCH_MAX_FILES + 30);
-    expect(rec.remembered).toHaveLength(BATCH_MAX_FILES + 30);
-  });
-
   it("a 5xx is a hiccup: the per-file path still gets every row", async () => {
     const { deps, rec } = harness(binaries(25), {
       throwOnBatch: Object.assign(new Error("boom"), { status: 503 }),

@@ -182,24 +182,6 @@ describe("AttachmentSync.reconcile (two-way)", () => {
     expect(local.has("Team/guide.pdf")).toBe(true);
   });
 
-  it("keeps syncing embeds after a standalone-file plan refusal", async () => {
-    const { deps, local, server } = makeDeps(
-      [{ relPath: "standalone.pdf", bytes: new Uint8Array([1]) },
-       { relPath: "attachments/local.png", bytes: new Uint8Array([2]) }],
-      [{ id: "remote", relPath: "attachments/remote.png", bytes: new Uint8Array([3]) }],
-    );
-    const upload = deps.uploadServer!;
-    deps.uploadServer = async (path, ...args) => {
-      if (path === "standalone.pdf") throw serverError(402, "attachment_sync_requires_pro");
-      return upload(path, ...args);
-    };
-    const sync = new AttachmentSync(deps);
-    expect(await sync.reconcile()).toEqual({ uploaded: 1, downloaded: 1 });
-    local.set("attachments/later.png", new Uint8Array([4]));
-    expect(await sync.reconcile()).toEqual({ uploaded: 1, downloaded: 0 });
-    expect([...server.values()].some(row => row.relPath === "attachments/later.png")).toBe(true);
-  });
-
   it("is a no-op when both sides already match", async () => {
     const bytes = new Uint8Array([5, 5, 5]);
     const { deps } = makeDeps(
@@ -208,83 +190,6 @@ describe("AttachmentSync.reconcile (two-way)", () => {
     );
     const res = await new AttachmentSync(deps).reconcile();
     expect(res).toEqual({ uploaded: 0, downloaded: 0 });
-  });
-
-  it("recovers existing Free images when an older server is upgraded during the session", async () => {
-    const { deps, local } = makeDeps([], [
-      { id: "legacy", relPath: "attachments/old.png", bytes: new Uint8Array([7, 8]) },
-    ]);
-    const list = deps.listServer;
-    let upgraded = false;
-    deps.listServer = async () => {
-      if (!upgraded) throw serverError(402, "attachment_sync_requires_pro");
-      return list();
-    };
-    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
-    try {
-      const sync = new AttachmentSync(deps);
-      expect(await sync.reconcile()).toEqual({ uploaded: 0, downloaded: 0 });
-      upgraded = true;
-      now.mockReturnValue(61_001);
-      expect(await sync.reconcile()).toEqual({ uploaded: 0, downloaded: 1 });
-      expect(local.get("attachments/old.png")).toEqual(new Uint8Array([7, 8]));
-    } finally { now.mockRestore(); }
-  });
-
-  it("stops retrying when the server says attachment sync requires Pro", async () => {
-    const { deps } = makeDeps([{ relPath: "attachments/local.png", bytes: new Uint8Array([1]) }]);
-    let pro = false;
-    const listServer = vi.fn(async () => {
-      if (!pro) throw serverError(402, "attachment_sync_requires_pro");
-      return [];
-    });
-    const notify = vi.fn();
-    const onFileStates = vi.fn();
-    const onEntitlementBlocked = vi.fn();
-    const sync = new AttachmentSync({
-      ...deps,
-      listServer,
-      notify,
-      onFileStates,
-      onEntitlementBlocked,
-    });
-
-    expect(await sync.reconcile()).toEqual({ uploaded: 0, downloaded: 0 });
-    expect(await sync.reconcile()).toEqual({ uploaded: 0, downloaded: 0 });
-    expect(listServer).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledOnce();
-    expect(notify.mock.calls[0]?.[0]).toMatch(/standalone files/i);
-    expect(notify.mock.calls[0]?.[0]).toMatch(/upgrade.*Pro/i);
-    expect(onFileStates).toHaveBeenLastCalledWith({});
-    expect(onEntitlementBlocked).toHaveBeenCalledTimes(1);
-    expect(onEntitlementBlocked).toHaveBeenLastCalledWith(true);
-
-    // A confirmed billing refresh explicitly re-enables the probe; successful
-    // entitlement recovery resumes the ordinary mirror in this same session.
-    pro = true;
-    sync.resetEntitlement();
-    expect(onEntitlementBlocked).toHaveBeenLastCalledWith(false);
-    expect(await sync.reconcile()).toEqual({ uploaded: 1, downloaded: 0 });
-    expect(listServer).toHaveBeenCalledTimes(2);
-  });
-
-  it("remembers a plan refusal without announcing it for a note-only vault", async () => {
-    const { deps } = makeDeps();
-    const listServer = vi.fn(async () => {
-      throw serverError(402, "attachment_sync_requires_pro");
-    });
-    const notify = vi.fn();
-    const onEntitlementBlocked = vi.fn();
-    const sync = new AttachmentSync({
-      ...deps,
-      listServer,
-      notify,
-      onEntitlementBlocked,
-    });
-
-    expect(await sync.reconcile()).toEqual({ uploaded: 0, downloaded: 0 });
-    expect(onEntitlementBlocked).toHaveBeenCalledWith(true);
-    expect(notify).not.toHaveBeenCalled();
   });
 
   it("scheduleReconcile debounces a burst into a single pass", () => {
@@ -762,27 +667,6 @@ describe("AttachmentSync upload transport (intent → PUT → complete)", () => 
     expect(log.intents).toHaveLength(1);
   });
 
-  it("aborts the whole pass on 402 and toasts exactly once", async () => {
-    const { deps, log } = makeTransport(
-      [
-        { relPath: "attachments/a.png", bytes: new Uint8Array([1]) },
-        { relPath: "attachments/b.png", bytes: new Uint8Array([2]) },
-      ],
-      () => serverError(402, "storage_limit_reached"),
-    );
-    const sync = new AttachmentSync(deps);
-    expect(await sync.reconcile()).toEqual({ uploaded: 0, downloaded: 0 });
-
-    // The second file is never even announced: the vault is full, not the file.
-    expect(log.intents).toHaveLength(1);
-    expect(log.toasts).toHaveLength(1);
-    expect(log.toasts[0]).toMatch(/storage/i);
-    // A later pass re-tries (the user may have freed space) but never re-toasts.
-    await sync.reconcile();
-    expect(log.intents).toHaveLength(2);
-    expect(log.toasts).toHaveLength(1);
-  });
-
   it("skips a 413/415 file permanently instead of retrying it every pass", async () => {
     const { deps, log } = makeTransport(
       [
@@ -1132,7 +1016,7 @@ describe("AttachmentSync download transport (presigned URL)", () => {
 // files cost ~2,000 strictly sequential round trips. These pin the two budgets
 // that replaced it: six files in flight, and 32 MiB of them (Syncthing's
 // `pullerMaxPendingKiB` default), plus the two semantics concurrency could have
-// broken — a multipart complete's part ORDER, and the whole-pass 402 abort.
+// broken — a multipart complete's part ORDER.
 
 /** A `putFile` that records how many transfers overlap. */
 function concurrencyProbe(delayMs = 0) {
@@ -1246,28 +1130,6 @@ describe("AttachmentSync bounded concurrency", () => {
     });
   });
 
-  it("stops starting new uploads the moment one answers 402", async () => {
-    const names = manyFiles(20, 1);
-    let intents = 0;
-    const { deps, log } = makeTransport(
-      names.map((relPath) => ({ relPath, bytes: new Uint8Array([1]) })),
-      () => {
-        intents++;
-        // The first file is the probe and succeeds; the vault fills after it.
-        return intents === 1 ? SINGLE_INTENT : serverError(402, "storage_limit_reached");
-      },
-      { putFile: concurrencyProbe(1).putFile },
-    );
-    const sync = new AttachmentSync(deps);
-    const res = await sync.reconcile();
-
-    // The lanes already in flight finish their refusal; nothing behind them is
-    // ever announced — the whole point of AbortPass.
-    expect(log.intents.length).toBeLessThan(20);
-    expect(log.intents.length).toBeLessThanOrEqual(1 + 6);
-    expect(res.uploaded).toBe(1);
-    expect(log.toasts).toHaveLength(1); // one fact about the vault, not per file
-  });
 });
 
 describe("explicit missing-file recovery", () => {
@@ -1301,14 +1163,6 @@ describe("explicit missing-file recovery", () => {
     await expect(new AttachmentSync({ ...deps, writeTreeLocal: deps.writeLocal }).downloadMissing(["missing.pdf", "a.pdf"]))
       .rejects.toThrow("missing.pdf: no downloadable copy");
     expect(local.has("a.pdf")).toBe(true);
-  });
-  it("explains an explicit Pro refusal even with no local files", async () => {
-    const { deps } = makeDeps();
-    const onEntitlementBlocked = vi.fn();
-    const error = Object.assign(new Error("Payment required"), { status: 402, code: "attachment_sync_requires_pro" });
-    await expect(new AttachmentSync({ ...deps, onEntitlementBlocked, listServer: async () => { throw error; } }).downloadMissing(["a.pdf"]))
-      .rejects.toThrow("including files uploaded before the restriction");
-    expect(onEntitlementBlocked).toHaveBeenCalledWith(true);
   });
   it("does not write after the vault changes during listing", async () => {
     const { deps, local } = makeDeps([], seed);
@@ -1346,7 +1200,6 @@ describe("one-step file upload (files-with-bytes)", () => {
     const registered: string[] = [];
     const remembered: Array<{ relPath: string; id: string; authored?: boolean }> = [];
     const registers: unknown[] = [];
-    const blocked: boolean[] = [];
     const { deps, log } = makeTransport([{ relPath: PDF, bytes: new Uint8Array([1, 2, 3]) }], respond, {
       filesWithBytes: async () => oneStep,
       localFileIds: async () => new Map([[PDF, "local-pdf"]]),
@@ -1358,9 +1211,6 @@ describe("one-step file upload (files-with-bytes)", () => {
       rememberFileId: (relPath, id, opts) => {
         remembered.push({ relPath, id, authored: opts?.authored });
       },
-      onEntitlementBlocked: (b) => {
-        blocked.push(b);
-      },
     });
     const inner = deps.createIntent!;
     deps.createIntent = async (input) => {
@@ -1371,7 +1221,7 @@ describe("one-step file upload (files-with-bytes)", () => {
       log.completes.push({ url, body });
       return complete() as never;
     };
-    return { deps, log, registered, remembered, registers, blocked };
+    return { deps, log, registered, remembered, registers };
   }
 
   it("a new file sends register with the intent and records the id from complete", async () => {
@@ -1413,17 +1263,6 @@ describe("one-step file upload (files-with-bytes)", () => {
 
     expect(rig.registered).toEqual([]);
     expect(rig.remembered).toEqual([{ relPath: PDF, id: "teammate-row", authored: true }]);
-  });
-
-  it("a Pro refusal leaves no id and raises the attachment-local-only notice", async () => {
-    const rig = oneStepRig(true, () => serverError(402, "attachment_sync_requires_pro"));
-    await new AttachmentSync(rig.deps).reconcile();
-
-    expect(rig.registered).toEqual([]);
-    expect(rig.remembered).toEqual([]);
-    expect(rig.log.puts).toEqual([]);
-    expect(rig.blocked).toEqual([true]);
-    expect(rig.log.toasts.some((t) => t.includes("Upgrade to Pro"))).toBe(true);
   });
 
   it("an old server (feature absent) registers first, then uploads, unchanged", async () => {

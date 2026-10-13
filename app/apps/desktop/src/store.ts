@@ -20,14 +20,11 @@ import { loadedFolderPaths, mergeChildren, nodeAt, setChildrenAt } from "./lib/t
 import { applyTitlePatch } from "./lib/tree/titles";
 import {
   ApiError,
-  type BillingConfig,
   type Invitation,
   type InvitationPreview,
   type Member,
-  type MyBilling,
   type NoteLastEdited,
   type NoteVersion,
-  type OrgBilling,
   type Organization,
   type SessionInfo,
   type Share,
@@ -435,7 +432,7 @@ interface AppStore {
    * Identity of the most recent bulk run that ENDED in failure — bumped once per
    * fresh transition into the `error` phase, never while a run is moving.
    *
-   * What makes the note-limit banner dismissible per failure rather than per
+   * What makes the create-refusal banner dismissible per failure rather than per
    * app launch: the banner remembers the token it was dismissed for, so the next
    * failing run is a different number and raises it again. Vault-scoped like
    * `syncProgress` (a failure in the vault you left is not news here).
@@ -469,8 +466,6 @@ interface AppStore {
    * Dropped on every vault switch alongside `docSyncState`.
    */
   fileSyncState: Record<string, DocSyncState>;
-  /** True only after this vault's server explicitly refuses attachment sync. */
-  attachmentSyncBlocked: boolean;
   /**
    * Vault-relative note path → that note's **server docId**, mirroring the
    * registry's map for the open vault (empty when sync is off).
@@ -544,18 +539,6 @@ interface AppStore {
    * vault, which has no server row to hold it.
    */
   rootFrozen: boolean;
-
-  // ---- Billing (subscription) ----
-  /** Server billing capability; null until first probed. `enabled === false`
-   *  (self-host / older server) means the whole billing UI stays hidden. */
-  billingConfig: BillingConfig | null;
-  /** The active vault's subscription state + seat usage; null when unknown. */
-  orgBilling: OrgBilling | null;
-  /** Every vault's plan plus the subscriptions left behind by deleted vaults —
-   *  what the Billing tab's Subscriptions list renders. This can't be derived
-   *  from `organizations` + `orgBilling`: role is only known for the active
-   *  org, and `orgBilling` covers one vault at a time (#109). */
-  myBilling: MyBilling | null;
 
   // ---- Account-level preferences (follow the app, not any vault) ----
   /** The user's chosen activity status; broadcast to teammates via presence. */
@@ -691,13 +674,6 @@ interface AppStore {
   settingsDialog: "vault" | "account" | null;
   /** Close a settings dialog; with `which`, only if that one is showing. */
   closeSettingsDialog: (which?: "vault" | "account") => void;
-  /**
-   * Open the Upgrade (plan comparison) dialog from any screen. `reason` is one
-   * muted line under its heading. Consumed by `UpgradeDialogHost` (main.tsx).
-   */
-  upgradeDialogRequest: { reason?: string; orgId?: string; token: number } | null;
-  requestUpgradeDialog: (opts?: { reason?: string; orgId?: string }) => void;
-  clearUpgradeDialogRequest: () => void;
   /**
    * Whether the connected server lacks features this app needs (UI mirror
    * only; `lib/serverFeatures.ts`). Null = unknown or not checked yet, which
@@ -846,12 +822,6 @@ interface AppStore {
    * without a reload.
    */
   handleAccountLink: (kind: AccountLinkKind) => Promise<void>;
-  /**
-   * A `secondbrain://billing/upgraded?org=…` hand-off arrived from the checkout
-   * success page: the server has confirmed the payment, so re-read billing and
-   * say so. `orgId` is the vault that was upgraded, when the page knew it.
-   */
-  handleBillingLink: (orgId: string | null) => Promise<void>;
   /** Remove a member from the active vault (owner/admin), then refresh. */
   removeMember: (userId: string) => Promise<void>;
   /** Change a member's role in the active vault (owner/admin), then refresh. */
@@ -889,9 +859,7 @@ interface AppStore {
   membershipLost: { text: string; at: number } | null;
   dismissMembershipLost: () => void;
   /** Permanently delete a vault everywhere (owner only), then detach it.
-   *  Hands back the server's report so the caller can say what became of the
-   *  vault's subscription — deleting a Team vault stops it at the END of the
-   *  period rather than instantly, and that date is the whole message (#111). */
+   *  Hands back the server's report. */
   deleteRemoteVault: (organizationId: string) => Promise<VaultDeleteResult>;
   /**
    * Make a synced vault LOCAL ONLY (owner only): the server destroys everything
@@ -899,8 +867,8 @@ interface AppStore {
    * and `.context/index.sqlite` row exactly where they are — including the CRDT
    * log, so a later re-sync reuses the same doc ids and the history survives.
    *
-   * Server first: a refusal (403, 409 `name_mismatch`, 502
-   * `subscription_cancel_failed`, offline) must leave this device untouched.
+   * Server first: a refusal (403, 409 `name_mismatch`, offline) must leave
+   * this device untouched.
    */
   unsyncVault: (organizationId: string, confirmName: string) => Promise<UnsyncResult>;
   /**
@@ -1022,14 +990,6 @@ interface AppStore {
   /** Roll the whole vault back to a checkpoint (owner only). */
   revertVaultToCheckpoint: (id: string) => Promise<VaultRevertResult>;
 
-  // Billing
-  /** Re-probe server billing capability (on start/sign-in/server change). */
-  refreshBillingConfig: () => Promise<void>;
-  /** Refresh the active vault's subscription state + seats. */
-  refreshOrgBilling: () => Promise<void>;
-  /** Refresh every vault's plan + any subscription from a deleted vault. */
-  refreshMyBilling: () => Promise<void>;
-
   // Sync
   setSyncStatus: (status: SyncStatus) => void;
   setSyncPending: (pending: boolean) => void;
@@ -1040,7 +1000,6 @@ interface AppStore {
   patchDocSyncState: (patch: Record<string, DocSyncState | null>) => void;
   /** Replace the per-file sync map (keys are paths; `{}` = nothing to draw). */
   setFileSyncState: (states: Record<string, DocSyncState>) => void;
-  setAttachmentSyncBlocked: (blocked: boolean) => void;
   /** Replace the path→docId index (the registry mirror; `{}` = nothing synced). */
   setDocIdByPath: (map: Record<string, string>) => void;
   /**
@@ -1876,7 +1835,6 @@ function vaultScopedSyncReset() {
     vaultReadySeen: false,
     docSyncState: {} as Record<string, DocSyncState>,
     fileSyncState: {} as Record<string, DocSyncState>,
-    attachmentSyncBlocked: false,
     docIdByPath: {} as Record<string, string>,
     locks: [] as Share[],
     denies: [] as Share[],
@@ -1966,7 +1924,6 @@ async function unsyncLocalTeardown(
     openFolderIsSynced: false,
     members: [],
     pendingInvitations: [],
-    orgBilling: null,
     vaultUnsynced: null,
   });
   // A local folder's open gate opens at once: there is no prime coming to
@@ -2052,7 +2009,6 @@ export const useStore = create<AppStore>((set, get) => ({
   settingsDialog: null,
   closeSettingsDialog: (which) =>
     set((s) => (which && s.settingsDialog !== which ? {} : { settingsDialog: null })),
-  upgradeDialogRequest: null,
   backendStatus: null,
   setBackendStatus: (backendStatus) => set({ backendStatus }),
   revealedPath: null,
@@ -2094,9 +2050,6 @@ export const useStore = create<AppStore>((set, get) => ({
   itemOrder: {},
   pendingVaultFolder: null,
   rootFrozen: false,
-  billingConfig: null,
-  orgBilling: null,
-  myBilling: null,
   activityStatus: readActivityStatus(),
   mentionSound: readMentionSound(),
   automaticItemColors: readAutomaticItemColors(null),
@@ -2698,18 +2651,6 @@ export const useStore = create<AppStore>((set, get) => ({
     }));
   },
 
-  requestUpgradeDialog: (opts) => {
-    set((s) => ({
-      upgradeDialogRequest: {
-        reason: opts?.reason,
-        orgId: opts?.orgId,
-        token: (s.upgradeDialogRequest?.token ?? 0) + 1,
-      },
-    }));
-  },
-
-  clearUpgradeDialogRequest: () => set({ upgradeDialogRequest: null }),
-
   setRevealedPath: (path) => set({ revealedPath: path }),
 
   openNoteLink: async (url) => {
@@ -3192,13 +3133,8 @@ export const useStore = create<AppStore>((set, get) => ({
     // The same signal for files: the attachment mirror speaks once per pass and
     // once per upload, which is orders of magnitude quieter than the note run.
     syncManager.setFileStateListener((states) => get().setFileSyncState(states));
-    // Optional chaining keeps narrow test/legacy manager shims compatible;
-    // the production manager always exposes this listener.
-    syncManager.setAttachmentEntitlementListener?.((blocked) =>
-      get().setAttachmentSyncBlocked(blocked),
-    );
     // The vault folder moved, a bulk delete is waiting, or the closed-app notice
-    // (#221). Optional for the same narrow-shim reason as the line above.
+    // (#221). Optional chaining keeps narrow test/legacy manager shims compatible.
     syncManager.setStructureNoticeListener?.((notice) => get().applyStructureNotice(notice));
     // The path→docId index the sidebar needs to attach a docId-keyed sync state
     // to a path-keyed row. Coalesced by SyncManager on the same ~10/second budget.
@@ -3223,18 +3159,11 @@ export const useStore = create<AppStore>((set, get) => ({
       set({ serverUrl: authManager.getServerUrl() });
       if (session) {
         set({ session, authStatus: "signed-in", authError: null });
-        // Independent of each other: the vault roster + invitations, and the
-        // billing feature flag. Serial, these were two round trips in front of
-        // the landing for no reason.
-        // The landing needs the vault LIST and nothing else from these two: the
-        // member roster, both invitation lists and the billing flag are panel
-        // data that no part of getting a vault on screen reads. Awaiting them
-        // here is what put four round trips between sign-in and the first byte
-        // of sync. `refreshVault` resolves once `organizations` is set.
-        await Promise.all([
-          get().refreshVault({ rosterInBackground: true }),
-          get().refreshBillingConfig(),
-        ]);
+        // The landing needs the vault LIST and nothing else: the member roster
+        // and both invitation lists are panel data that no part of getting a
+        // vault on screen reads. `refreshVault` resolves once `organizations`
+        // is set.
+        await get().refreshVault({ rosterInBackground: true });
         if (superseded()) return;
         // An invitation link may have LAUNCHED the app too, and the vault it
         // names is where the user must land — so the ordinary landing is
@@ -3247,10 +3176,6 @@ export const useStore = create<AppStore>((set, get) => ({
         // restore is what delegated to it — so adopt it instead of reading our
         // own delegate as a supersession and abandoning the rest of the boot.
         gen = authInitGen;
-        // Seat usage + plan feed the billing panel only — nothing about getting
-        // a vault on screen waits for them. (It reads `billingConfig`, so it has
-        // to follow the pair above.)
-        void get().refreshOrgBilling();
         if (!joined) await landInLastVault(get);
         if (superseded()) return;
         // A share link may have LAUNCHED the app: its deep-link replay raced
@@ -3285,7 +3210,6 @@ export const useStore = create<AppStore>((set, get) => ({
       set({ session, authStatus: session ? "signed-in" : "signed-out" });
       if (session) {
         await get().refreshVault();
-        await get().refreshBillingConfig();
         // An invitation waiting on this sign-in owns the landing: its vault is
         // the one the user is joining. Only a failed accept falls through to
         // the ordinary landing (below), so an email mismatch still leaves them
@@ -3297,7 +3221,6 @@ export const useStore = create<AppStore>((set, get) => ({
           // on the welcome screen.
           await landInLastVault(get);
         }
-        await get().refreshOrgBilling();
         if (!joined) await get().openWelcomeIfPresent();
         // A shared link queued while signed out supersedes Welcome — the
         // landing already switched into its vault via requestOpenVault.
@@ -3322,12 +3245,10 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ session, authStatus: session ? "signed-in" : "signed-out" });
     if (session) {
       await get().refreshVault();
-      await get().refreshBillingConfig();
       // Same as email sign-in: a queued invitation owns the landing, otherwise
       // land in a vault, creating the first one if the account has none.
       const joined = peekPendingInvite() != null && (await consumeQueuedInvite(get, set));
       if (!joined) await landInLastVault(get);
-      await get().refreshOrgBilling();
       if (!joined) await get().openWelcomeIfPresent();
       await consumeQueuedNoteLink(get);
     }
@@ -3344,7 +3265,6 @@ export const useStore = create<AppStore>((set, get) => ({
       set({ session, authStatus: session ? "signed-in" : "signed-out" });
       if (session) {
         await get().refreshVault();
-        await get().refreshBillingConfig();
         // The commonest invite case by far: the invitee had no account, so they
         // sign UP from the invite card. Accepting is the landing — and it also
         // stops `landInLastVault` from inventing a private "My Vault" first,
@@ -3357,7 +3277,6 @@ export const useStore = create<AppStore>((set, get) => ({
           // to the welcome screen.
           await landInLastVault(get);
         }
-        await get().refreshOrgBilling();
         if (!joined) await get().openWelcomeIfPresent();
         await consumeQueuedNoteLink(get);
         // The dialog closes the instant the session lands, so this is the only
@@ -3416,9 +3335,6 @@ export const useStore = create<AppStore>((set, get) => ({
       userInvitations: [],
       ...vaultScopedSyncReset(),
       pendingVaultFolder: null,
-      billingConfig: null,
-      orgBilling: null,
-      myBilling: null,
       // Close the open vault so the app returns to the VaultPicker "home" screen
       // (choose / reopen a vault) instead of leaving the old vault's files
       // on screen after sign-out.
@@ -3483,8 +3399,6 @@ export const useStore = create<AppStore>((set, get) => ({
     });
     if (session) {
       await get().refreshVault();
-      await get().refreshBillingConfig();
-      await get().refreshOrgBilling();
       await get().enableSyncForVault();
       // An invitation link that named THIS server parked itself here waiting
       // for the user's Connect click (`openInviteLink` step 2). The click has
@@ -3493,7 +3407,7 @@ export const useStore = create<AppStore>((set, get) => ({
       if (peekPendingInvite()) await consumeQueuedInvite(get, set);
     } else {
       syncManager.disable();
-      set({ syncEnabled: false, billingConfig: null, orgBilling: null, myBilling: null });
+      set({ syncEnabled: false });
       // Same invitation, no session on the new server: raise the sign-in card
       // for it rather than leaving the queue to be discovered by the next
       // unrelated sign-in.
@@ -3853,8 +3767,6 @@ export const useStore = create<AppStore>((set, get) => ({
     if (stale()) return;
     rememberLastVault(org.id);
     await get().enableSyncForVault();
-    if (stale()) return;
-    await get().refreshOrgBilling();
   },
 
   setActiveOrganization: async (organizationId, opts = {}) => {
@@ -3871,7 +3783,7 @@ export const useStore = create<AppStore>((set, get) => ({
     // Announce the destination BEFORE the first await. A vault already on this
     // device swaps its folder in a few IPCs (the fast path in `switchToOrg`),
     // too quickly for the overlay's fade-in; one without a folder yet is many
-    // round trips (activate org → re-read session → roster → billing →
+    // round trips (activate org → re-read session → roster →
     // rediscover or mint a folder), and until the folder actually swaps, the
     // sidebar still shows the vault you just left. Clicking a vault and watching
     // the old one sit there is indistinguishable from the click not registering,
@@ -3971,12 +3883,11 @@ export const useStore = create<AppStore>((set, get) => ({
       set({ session });
 
       if (boundOk && openError === null) {
-        // Roster + seat usage feed the members and billing panels, not the tree,
-        // and the reconcile is the part that scales with the vault: none of them
-        // is worth making the user wait for. Each swallows its own errors and
-        // gates its state writes on this still being the open vault.
+        // The roster feeds the members panel, not the tree, and the reconcile
+        // is the part that scales with the vault: neither is worth making the
+        // user wait for. Each swallows its own errors and gates its state
+        // writes on this still being the open vault.
         void get().refreshVault();
-        void get().refreshOrgBilling();
         void get()
           .enableSyncForVault({ background: true })
           .catch((e) => console.warn("[sync] enable after switch failed", e));
@@ -3984,9 +3895,6 @@ export const useStore = create<AppStore>((set, get) => ({
       }
 
       await get().refreshVault();
-      if (superseded()) return;
-      // Seat usage + plan are per-vault, so refresh on every switch.
-      await get().refreshOrgBilling();
       if (superseded()) return;
 
       // No local folder opened above. Do NOT reuse the folder that's currently
@@ -4193,38 +4101,6 @@ export const useStore = create<AppStore>((set, get) => ({
     if (get().authStatus === "signed-in") await get().signOut();
     set({ authPrompt: "sign-in" });
     toast("Password updated — sign in with your new password.", "success");
-  },
-
-  handleBillingLink: async (orgId) => {
-    if (get().authStatus !== "signed-in") {
-      toast("Payment received. Sign in to see your Team plan.", "neutral");
-      return;
-    }
-    // Ask the server to re-read the live subscription from the provider once
-    // (a webhook may not have landed yet); a failure or an old server is fine.
-    await authManager.api.getBillingAccount({ refresh: true }).catch(() => undefined);
-    // Both readers of the fact: the active vault's badge/limits and the
-    // Subscriptions list. The Upgrade dialog, if it is still open, watches
-    // these and flips to its success screen on its own.
-    await Promise.all([get().refreshOrgBilling(), get().refreshMyBilling()]);
-    const active = get().session?.activeOrganizationId ?? null;
-    const target = orgId ?? active;
-    const row = target ? get().myBilling?.vaults.find((v) => v.orgId === target) : undefined;
-    const isPro =
-      row?.plan === "pro" ||
-      (target !== null && target === active && get().orgBilling?.status === "active");
-    if (isPro) {
-      const name = row?.name;
-      toast(
-        name ? `${name} is now on Team.` : "You are now on Team.",
-        "success",
-      );
-      return;
-    }
-    // Paid, but the confirmation hasn't landed yet (provider still processing,
-    // or a webhook on its way). Polling in the Upgrade dialog and the next
-    // Billing visit pick it up; say so rather than nothing.
-    toast("Payment received — your subscription will show up in a moment.", "neutral");
   },
 
   removeMember: async (userId) => {
@@ -4462,11 +4338,8 @@ export const useStore = create<AppStore>((set, get) => ({
   dismissMembershipLost: () => set({ membershipLost: null }),
 
   deleteRemoteVault: async (organizationId) => {
-    // Permanent, server-side, owner-only. 403s here if the caller isn't owner.
-    // A vault on Team is cancelled at the provider FIRST, so a 502 here means
-    // nothing was deleted — which is also why the result is handed back rather
-    // than swallowed: only the caller can tell the user when the paid period
-    // ends and that it can still be moved to another vault until then (#111).
+    // Permanent, server-side, owner-only. 403s here if the caller isn't owner,
+    // and a throw means nothing was deleted.
     const result = await authManager.api.deleteRemoteVault(organizationId);
     // This device's folder, captured BEFORE the teardown forgets the binding.
     const folderPath = readOrgVaults()[organizationId] ?? null;
@@ -4489,8 +4362,8 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   unsyncVault: async (organizationId, confirmName) => {
-    // 1. Server first. Anything thrown here — 403, a 409 `name_mismatch`, the
-    //    502 a refusing billing provider produces, or simply being offline —
+    // 1. Server first. Anything thrown here — 403, a 409 `name_mismatch`, or
+    //    simply being offline —
     //    propagates with NOTHING changed on this device, the same rule
     //    `leaveVault` states. Only once this returns is the server copy gone.
     const result = await authManager.api.unsyncVault(organizationId, confirmName);
@@ -5069,67 +4942,6 @@ export const useStore = create<AppStore>((set, get) => ({
     return result;
   },
 
-  // ---- Billing ----
-
-  refreshBillingConfig: async () => {
-    // Gated like every other detached-restore write: a config fetched for the
-    // account we just signed out of must not survive into the next one.
-    const gen = authInitGen;
-    // getBillingConfig never throws — it returns { enabled: false } on any
-    // failure (older/self-hosted server), so the billing UI simply stays hidden.
-    const billingConfig = await authManager.api.getBillingConfig();
-    if (authInitGen !== gen) return;
-    set({ billingConfig });
-  },
-
-  refreshOrgBilling: async () => {
-    const gen = authInitGen;
-    const orgId = get().session?.activeOrganizationId;
-    if (!orgId || !get().billingConfig?.enabled) {
-      set({ orgBilling: null });
-      return;
-    }
-    try {
-      const orgBilling = await authManager.api.getOrgBilling(orgId);
-      if (authInitGen !== gen) return;
-      set({ orgBilling });
-    } catch (e) {
-      console.warn("[billing] refresh failed", e);
-      if (authInitGen !== gen) return;
-      set({ orgBilling: null });
-    }
-  },
-
-  refreshMyBilling: async () => {
-    // Account-wide, so it needs a session rather than an active vault — the
-    // Billing tab is reachable from a local vault now. Failures are swallowed
-    // like refreshOrgBilling's: the list simply doesn't render, it never takes
-    // the settings page down with it.
-    if (!get().session || !get().billingConfig?.enabled) {
-      set({ myBilling: null });
-      return;
-    }
-    try {
-      const activeOrgId = get().session?.activeOrganizationId ?? null;
-      const wasPro = !!get().myBilling?.vaults.some(
-        (vault) => vault.orgId === activeOrgId && vault.plan === "pro",
-      );
-      const myBilling = await authManager.api.getMyBilling();
-      set({ myBilling });
-      const isPro = !!myBilling.vaults.some(
-        (vault) => vault.orgId === activeOrgId && vault.plan === "pro",
-      );
-      // An attachment-plan refusal is memoised after the first 402 so watcher
-      // retries cannot loop. Only a confirmed Free -> Team transition clears
-      // that refusal and schedules a fresh attachment comparison.
-      if (!wasPro && isPro) syncManager.recheckAttachmentEntitlement();
-      else syncManager.checkAttachmentEntitlement?.();
-    } catch (e) {
-      console.warn("[billing] mine refresh failed", e);
-      set({ myBilling: null });
-    }
-  },
-
   // ---- Sync ----
 
   setSyncStatus: (status) => {
@@ -5157,7 +4969,7 @@ export const useStore = create<AppStore>((set, get) => ({
       );
     }
     // A FRESH arrival at `error` is a new failed run, and the only thing that
-    // may un-dismiss the note-limit banner. Later emissions of the same phase
+    // may un-dismiss the create-refusal banner. Later emissions of the same phase
     // (the reporter re-flushes while failures trickle in) must not, or a
     // dismissed banner would pop back up as the counter moved.
     if (prev?.phase !== "error" && progress?.phase === "error") {
@@ -5183,7 +4995,6 @@ export const useStore = create<AppStore>((set, get) => ({
   // publishes the whole local binary set each pass, so a merge would keep dots
   // for files that have since been deleted, renamed, or left with the vault.
   setFileSyncState: (states) => set({ fileSyncState: states }),
-  setAttachmentSyncBlocked: (blocked) => set({ attachmentSyncBlocked: blocked }),
 
   // Replaced, not merged: the registry publishes the whole index for the open
   // vault, so a merge would keep rows for notes it has stopped mapping (deleted,

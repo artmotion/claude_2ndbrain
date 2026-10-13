@@ -42,9 +42,6 @@ function RowLabel({ row }: { row: PlaceRow }) {
   );
 }
 
-/** One line in whichever group holds Team-blocked files. */
-export const PRO_FILES_LINE =
-  "PDFs, images and other files need Team to sync. Notes and folders sync on every plan.";
 
 /** "2 notes, 1 folder, 3 files" — the confirm names exactly what goes. */
 export function describeSelection(rows: PlaceRow[]): string {
@@ -111,15 +108,12 @@ function useSelection(rows: PlaceRow[]) {
 export function LocalOnlyGroup({
   inventory,
   actions,
-  filesBlocked,
   onOpen,
   onShow,
   stale,
 }: {
   inventory: HealthInventory;
   actions: HealthActions;
-  /** Syncing standalone files needs Team here. */
-  filesBlocked: boolean;
   onOpen: (path: string) => void;
   onShow: (path: string) => void;
   stale: boolean;
@@ -134,7 +128,7 @@ export function LocalOnlyGroup({
   const files = inventory.deviceOnlyFiles;
   const canSync =
     inventory.deviceOnlyNotes.length + inventory.deviceOnlyFolders.length > 0 ||
-    (!filesBlocked && files.length > 0);
+    files.length > 0;
   const allPicked = sel.picked.length === rows.length;
 
   return (
@@ -146,7 +140,7 @@ export function LocalOnlyGroup({
             <AsyncButton
               className="ghost-pill sm"
               onClick={async () => {
-                if (!filesBlocked && files.length > 0) await actions.retryLocalFiles(files);
+                if (files.length > 0) await actions.retryLocalFiles(files);
                 await actions.syncNow();
               }}
             >
@@ -171,7 +165,6 @@ export function LocalOnlyGroup({
           )}
         </div>
       </div>
-      {filesBlocked && files.length > 0 && <p>{PRO_FILES_LINE}</p>}
       {error && !confirmDelete && <p role="alert" className="auth-error health-missing-error">{error}</p>}
       <ul>
         {rows.slice(0, limit).map((row) => (
@@ -183,7 +176,6 @@ export function LocalOnlyGroup({
               onToggle={() => sel.toggle(row)}
             />
             <span className="health-missing-actions">
-              {row.kind === "file" && filesBlocked && <span className="health-pro-tag">Team</span>}
               <button
                 type="button"
                 className="ghost-pill sm"
@@ -239,14 +231,11 @@ export function LocalOnlyGroup({
 export function RemoteOnlyGroup({
   inventory,
   actions,
-  downloadsBlocked,
   showCheckAgain,
   stale,
 }: {
   inventory: HealthInventory;
   actions: HealthActions;
-  /** Downloading standalone files needs Team here. */
-  downloadsBlocked: boolean;
   showCheckAgain: boolean;
   stale: boolean;
 }) {
@@ -282,12 +271,12 @@ export function RemoteOnlyGroup({
               Check again
             </AsyncButton>
           )}
-          {files.length > 0 && !downloadsBlocked && pickedFiles.length === 0 && (
+          {files.length > 0 && pickedFiles.length === 0 && (
             <AsyncButton className="ghost-pill sm" onClick={() => download(files)}>
               Download all
             </AsyncButton>
           )}
-          {pickedFiles.length > 0 && !downloadsBlocked && (
+          {pickedFiles.length > 0 && (
             <AsyncButton className="ghost-pill sm" onClick={() => download(pickedFiles)}>
               {`Download selected (${pickedFiles.length.toLocaleString()})`}
             </AsyncButton>
@@ -303,7 +292,6 @@ export function RemoteOnlyGroup({
           )}
         </div>
       </div>
-      {downloadsBlocked && files.length > 0 && <p>{PRO_FILES_LINE}</p>}
       {notice && <p role="status">{notice}</p>}
       {error && !remove && <p role="alert" className="auth-error health-missing-error">{error}</p>}
       <ul>
@@ -317,13 +305,9 @@ export function RemoteOnlyGroup({
             />
             {row.kind === "file" && (
               <span className="health-missing-actions">
-                {downloadsBlocked ? (
-                  <span className="health-pro-tag">Team</span>
-                ) : (
-                  <AsyncButton className="ghost-pill sm" onClick={() => download([row.path])}>
-                    Download
-                  </AsyncButton>
-                )}
+                <AsyncButton className="ghost-pill sm" onClick={() => download([row.path])}>
+                  Download
+                </AsyncButton>
                 <button
                   type="button"
                   className="ghost-pill sm danger"

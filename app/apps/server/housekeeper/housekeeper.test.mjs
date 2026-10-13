@@ -8,11 +8,11 @@ import { chooseCandidate, providerConfig } from "./provider.mjs";
 const hash = s => createHash("sha256").update(s).digest("hex");
 const denied = (status) => Object.assign(new Error("denied"), { status });
 function fixture(options = {}) {
-  let pro = true, permission = true, time = 0, decisions = 0, writes = 0;
+  let member = true, permission = true, time = 0, decisions = 0, writes = 0;
   const notes = [{ id: "source", path: "Launch.md", title: "Launch" }, { id: "target", path: "Product/Pricing strategy.md", title: "Pricing strategy" }];
   const content = new Map([["source", "Discuss [[Pricing|our prices]] today."], ["target", "Our pricing for the launch."]]);
   const host = {
-    async authorize() { if (!pro) throw denied(402); },
+    async authorize() { if (!member) throw denied(403); },
     createRouter() { return {}; },
     async notes() { return notes; },
     async read(id) {
@@ -38,7 +38,7 @@ function fixture(options = {}) {
   });
   const call = (action, body = {}, scope = "vault-user") => engine.handle(action, body, scope, host);
   return { call, host, notes, content, scan: () => call("suggest", { docId: "source", consent: true }),
-    revokePro: () => { pro = false; }, revokeAccess: () => { permission = false; }, expire: () => { time = 16 * 60_000; },
+    revokeMembership: () => { member = false; }, revokeAccess: () => { permission = false; }, expire: () => { time = 16 * 60_000; },
     counts: () => ({ decisions, writes }) };
 }
 test("review → targeted apply → guarded undo, preserving aliases and surrounding prose", async () => {
@@ -51,15 +51,15 @@ test("review → targeted apply → guarded undo, preserving aliases and surroun
   await f.call("undo", { id: undoId });
   assert.equal(f.content.get("source"), "Discuss [[Pricing|our prices]] today.");
 });
-test("Free cannot read, infer, apply, or undo", async () => {
-  const f = fixture(); f.revokePro();
-  for (const action of ["status", "suggest", "apply", "undo"]) await assert.rejects(f.call(action), { status: 402 });
+test("a non-member cannot read, infer, apply, or undo", async () => {
+  const f = fixture(); f.revokeMembership();
+  for (const action of ["status", "suggest", "apply", "undo"]) await assert.rejects(f.call(action), { status: 403 });
   assert.deepEqual(f.counts(), { decisions: 0, writes: 0 });
 });
-test("downgrade and access revocation invalidate issued suggestions", async () => {
-  for (const kind of ["revokePro", "revokeAccess"]) {
+test("membership and access revocation invalidate issued suggestions", async () => {
+  for (const kind of ["revokeMembership", "revokeAccess"]) {
     const f = fixture(); const { suggestions } = await f.scan(); f[kind]();
-    await assert.rejects(f.call("apply", { id: suggestions[0].id }), { status: kind === "revokePro" ? 402 : 403 });
+    await assert.rejects(f.call("apply", { id: suggestions[0].id }), { status: 403 });
     assert.equal(f.counts().writes, 0);
   }
 });
@@ -96,9 +96,9 @@ test("consent is required before provider calls; requests are bounded", async ()
   for (let i = 0; i < 6; i++) await f.scan();
   await assert.rejects(f.scan(), { status: 429 });
 });
-test("recheck entitlements after a provider call before releasing suggestions", async () => {
-  const f = fixture({ decide: async () => { f.revokePro(); return { candidateId: "target", model: "test" }; } });
-  await assert.rejects(f.scan(), { status: 402 });
+test("recheck authorization after a provider call before releasing suggestions", async () => {
+  const f = fixture({ decide: async () => { f.revokeMembership(); return { candidateId: "target", model: "test" }; } });
+  await assert.rejects(f.scan(), { status: 403 });
 });
 test("concurrent calls are refused, and a provider failure releases the scope", async () => {
   let finish;
@@ -217,7 +217,7 @@ test("repair authority and model abstention cannot be bypassed by client patches
   assert.equal((await f.call("repair", body)).suggestions.length, 0);
   await assert.rejects(f.call("repair", { ...body, finding: "delete-all" }), { status: 400 });
   await assert.rejects(f.call("repair", { ...body, consent: false }), { status: 400 });
-  f.revokePro();
-  await assert.rejects(f.call("repair", body), { status: 402 });
+  f.revokeMembership();
+  await assert.rejects(f.call("repair", body), { status: 403 });
   assert.equal(f.counts().writes, 0);
 });

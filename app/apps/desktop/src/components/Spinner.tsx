@@ -1,6 +1,6 @@
 /**
  * The app's one spinner. Before this there were three hand-rolled rings
- * (updater button, vault picker, upgrade dialog) with different sizes and
+ * (updater button, vault picker, settings) with different sizes and
  * durations, which is how a product ends up feeling assembled rather than
  * designed — the same wait should look the same everywhere.
  *

@@ -71,7 +71,6 @@ describe("paused rows", () => {
         { docId: "a", relPath: "a.md", reason: "Sync paused", kind: "shrink-held" },
         { docId: "b", relPath: "b.md", reason: "network" },
       ],
-      limitCode: null,
     });
     expect(entries.map((e) => e.docId)).toEqual(["b"]);
   });

@@ -226,8 +226,6 @@ export type HealthIssueKind =
   | "upload-failed"
   /** The registry could not create/move the server row. */
   | "register-failed"
-  /** The server refused for a plan limit (`vault_limit_reached`, …). */
-  | "limit"
   /** A note on disk with no server mapping and no failure recorded yet. */
   | "unregistered"
   /** Server says the doc exists but this user may not read it. */
@@ -253,7 +251,6 @@ export type HealthRemedy =
   | "open"
   | "reveal"
   | "delete"
-  | "upgrade"
   | "reset-history"
   | "sign-in"
   /** Save a copy of the file outside the vault (native save dialog). */
@@ -442,7 +439,6 @@ export interface HealthActions {
   reveal(path: string): Promise<void>;
   /** The sidebar's delete (soft, server-aware). */
   deleteNote(path: string): Promise<void>;
-  openUpgrade(): void;
   requestSignIn(): void;
   /** Build the plain-text diagnostic bundle and copy it; returns the text. */
   copyDiagnostics(): Promise<string>;
@@ -479,7 +475,7 @@ export interface HealthActions {
 /** Server-side bytes for the vault's files and attachments. */
 export interface ServerStorage {
   usedBytes: number;
-  /** Null ⇒ this vault's plan has no storage cap. */
+  /** Always null: there is no storage cap. */
   limitBytes: number | null;
 }
 

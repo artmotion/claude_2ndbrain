@@ -24,23 +24,21 @@ interface AssistantProps {
   diagnostics?: DiagnosticInput | null;
   onGoToGeneral?: () => void;
 }
-export function HousekeeperPanel({ onUpgrade, ...assistant }: AssistantProps & { onUpgrade: () => void }) {
+export function HousekeeperPanel(assistant: AssistantProps) {
   const path = useStore(s => s.vault?.path);
   const server = useStore(s => s.serverUrl);
   const user = useStore(s => s.session?.user.id);
   const synced = useStore(s => s.syncEnabled);
   const titles = useStore(s => s.titles);
   const vaultId = synced ? syncManager.registry.vaultId : null;
-  const canUpgrade = useStore(s => s.billingConfig?.enabled === true);
   // Remount on every identity boundary; old async results cannot appear in another vault.
   return <HousekeeperView key={JSON.stringify([server, user, path, vaultId])}
-    {...assistant} identity={JSON.stringify([server, user])} vaultId={user ? vaultId : null} notes={titles} onUpgrade={canUpgrade ? onUpgrade : undefined} />;
+    {...assistant} identity={JSON.stringify([server, user])} vaultId={user ? vaultId : null} notes={titles} />;
 }
 
-export function HousekeeperView({ vaultId, notes, onUpgrade, diagnostics, onGoToGeneral, identity, brokenLinkNotes = [], onInspectFinding, onDiagnosticAction, collectDiagnostics, renderFindingDetails, localFindings, onPrepareFix, repairNotes = {} }: AssistantProps & {
+export function HousekeeperView({ vaultId, notes, diagnostics, onGoToGeneral, identity, brokenLinkNotes = [], onInspectFinding, onDiagnosticAction, collectDiagnostics, renderFindingDetails, localFindings, onPrepareFix, repairNotes = {} }: AssistantProps & {
   vaultId: string | null;
   notes: NoteTitle[];
-  onUpgrade?: () => void;
 }) {
   const [pane, setPane] = useState<"diagnostics" | "settings" | null>(identity ? null : "diagnostics");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -50,7 +48,6 @@ export function HousekeeperView({ vaultId, notes, onUpgrade, diagnostics, onGoTo
   const ready = identity ? provider !== null : true;
   const [status, setStatus] = useState<HousekeeperStatus | null>(null);
   const [refresh, setRefresh] = useState(0);
-  const [locked, setLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [docId, setDocId] = useState("");
   const [scan, setScan] = useState<HousekeeperScan | null>(null);
@@ -68,12 +65,11 @@ export function HousekeeperView({ vaultId, notes, onUpgrade, diagnostics, onGoTo
   useEffect(() => {
     alive.current = true;
     let current = true;
-    setLocked(false); setError(null); setStatus(null);
+    setError(null); setStatus(null);
     if (vaultId) void api.housekeeperStatus(vaultId).then(result => {
       if (current) setStatus(result);
     }).catch(e => {
       if (!current) return;
-      setLocked(e instanceof ApiError && e.status === 402);
       setError(e instanceof Error ? e.message : "Housekeeper is unavailable.");
     });
     return () => { current = false; alive.current = false; };
@@ -87,9 +83,8 @@ export function HousekeeperView({ vaultId, notes, onUpgrade, diagnostics, onGoTo
     catch (e) {
       if (alive.current) {
         setError(e instanceof Error ? e.message : "The operation failed. Please retry.");
-        if (e instanceof ApiError && [401, 402, 403].includes(e.status)) {
+        if (e instanceof ApiError && [401, 403].includes(e.status)) {
           setScan(null); setUndoId(null); setStatus(null); setReview(null);
-          setLocked(e.status === 402);
         }
         if (e instanceof ApiError && e.status === 409) { setScan(null); setUndoId(null); }
       }
@@ -111,7 +106,7 @@ export function HousekeeperView({ vaultId, notes, onUpgrade, diagnostics, onGoTo
   useEffect(() => { if (repairOpen) showRepair(); }, [repairOpen]);
   const availableNotes = notes.filter(n => /\.md$/i.test(n.path));
   return <section className="housekeeper-panel" aria-label="2ndBrain Assistant">
-    <div className="housekeeper-heading"><h3>2ndBrain Assistant</h3>{(status?.requiresTeam ?? status?.requiresPro) !== false && <span className="housekeeper-badge">Team</span>}</div>
+    <div className="housekeeper-heading"><h3>2ndBrain Assistant</h3></div>
     <p className="housekeeper-intro">Keep your vault tidy. Review every change.</p>
     <div className="housekeeper-announcement"><span className="housekeeper-badge">NEW</span><span>TypeSafe Jev is now available in 2ndBrain.</span></div>
     {identity && <>
@@ -123,11 +118,7 @@ export function HousekeeperView({ vaultId, notes, onUpgrade, diagnostics, onGoTo
         onReady={hasKey => setPane(current => !hasKey ? "settings" : current ?? "diagnostics")} onSaved={() => setPane("diagnostics")} /></div>
     </>}
     <div hidden={identity !== undefined && pane !== "diagnostics"}>
-    {!vaultId ? <div className="housekeeper-callout"><p>Connect this vault to sync and sign in to use Housekeeper.</p>{onGoToGeneral && <button className="secondary" onClick={onGoToGeneral}>Set up sync</button>}</div> : locked ? <div className="housekeeper-callout">
-      <p>Housekeeper requires a Team subscription for this vault.</p>
-      <div className="housekeeper-actions">{onUpgrade && <button className="primary" onClick={onUpgrade}>Upgrade vault</button>}
-      <button className="secondary" onClick={() => setRefresh(n => n + 1)}>Check access again</button></div>
-    </div> : status?.available ? <>
+    {!vaultId ? <div className="housekeeper-callout"><p>Connect this vault to sync and sign in to use Housekeeper.</p>{onGoToGeneral && <button className="secondary" onClick={onGoToGeneral}>Set up sync</button>}</div> : status?.available ? <>
       <div className="housekeeper-card">
         <div className="housekeeper-heading"><h4>Smart diagnostics</h4></div>
 
@@ -233,15 +224,15 @@ export function HousekeeperView({ vaultId, notes, onUpgrade, diagnostics, onGoTo
         </li>)}</ul>
       </div>}
       </div>}
-    </> : <p>{status ? "Housekeeper is not configured on this server. Ask the server administrator to configure OpenRouter." : error ? "Housekeeper could not connect." : "Checking Team access…"}</p>}
+    </> : <p>{status ? "Housekeeper is not configured on this server. Ask the server administrator to configure OpenRouter." : error ? "Housekeeper could not connect." : "Checking access…"}</p>}
     {!status?.available && localFindings}
     {notice && <p role="status">{notice}</p>}
     {undoId && vaultId && <button className="secondary" disabled={busy} onClick={() => void run(async () => {
       await api.housekeeperEdit(vaultId, "undo", undoId);
       if (alive.current) { setUndoId(null); setNotice("Housekeeper change undone."); }
     }, "Undoing fix…")}>{busy ? "Undoing…" : "Undo fix"}</button>}
-    {vaultId && !locked && !status?.available && <button className="secondary" disabled={busy} onClick={() => setRefresh(n => n + 1)}>Check access again</button>}
-    {error && !locked && <p role="alert">{error}</p>}
+    {vaultId && !status?.available && <button className="secondary" disabled={busy} onClick={() => setRefresh(n => n + 1)}>Check access again</button>}
+    {error && <p role="alert">{error}</p>}
     </div>
   </section>;
 }

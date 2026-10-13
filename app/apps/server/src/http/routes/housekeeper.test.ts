@@ -6,13 +6,12 @@ import { createHousekeeperRoutes } from "./housekeeper.js";
 import { OpenRouter } from "@openrouter/sdk";
 import { HTTPClient } from "@openrouter/sdk/lib/http.js";
 import type { DocWriter } from "../../mcp/doc-writer.js";
-const state = vi.hoisted(() => ({ user: true, member: true, plan: "pro", status: "active", deleted: false, permission: "edit", noteQueries: 0 }));
+const state = vi.hoisted(() => ({ user: true, member: true, permission: "edit", noteQueries: 0 }));
 vi.mock("../session.js", () => ({ getSession: async () => state.user ? { userId: "u" } : null }));
 vi.mock("../../permissions/lookup.js", () => ({ vaultOrg: async () => "org", orgRole: async () => state.member ? "member" : null }));
 vi.mock("../../permissions/resolver.js", () => ({ effectivePermission: async () => state.permission }));
 vi.mock("../../permissions/vault-docs.js", () => ({ listReadableDocsInVault: async () => new Set(["source", "target"]) }));
 vi.mock("../../db/pool.js", () => ({ pool: { query: vi.fn(async (sql: string, args: unknown[]) => {
-  if (sql.includes("FROM subscriptions")) return { rows: [{ allowed: state.plan === "pro" && ["active", "past_due"].includes(state.status) && !state.deleted }] };
   state.noteQueries++;
   if (sql.includes("ANY")) return { rows: [{ id: "source", path: "Launch.md", title: "Launch" }, { id: "target", path: "Pricing strategy.md", title: "Pricing strategy" }] };
   if (args[1] !== "vault") return { rows: [] };
@@ -23,8 +22,8 @@ const editContent = vi.fn();
 const writer = { peekContent, editContent } as unknown as DocWriter;
 const app = createHousekeeperRoutes(writer);
 beforeEach(() => {
-  Object.assign(state, { user: true, member: true, plan: "pro", status: "active", deleted: false, permission: "edit", noteQueries: 0 });
-  vi.clearAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.stubEnv("POLAR_ACCESS_TOKEN", "test-billing"); vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "cloud");
+  Object.assign(state, { user: true, member: true, permission: "edit", noteQueries: 0 });
+  vi.clearAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
 });
 const request = (action = "status", body?: unknown, vault = "vault") => app.request(`/vaults/${vault}/housekeeper/${action}`, {
   method: action === "status" ? "GET" : "POST", headers: { "Content-Type": "application/json" },
@@ -35,19 +34,7 @@ it("blocks unauthenticated callers and nonmembers before note reads", async () =
   state.user = true; state.member = false; expect((await request()).status).toBe(403);
   expect(state.noteQueries).toBe(0);
 });
-it.each(["free", "canceled", "expired", "tombstone"])("blocks %s on Cloud servers, on every endpoint", async condition => {
-  if (condition === "free") state.plan = "free";
-  else if (condition === "tombstone") state.deleted = true;
-  else state.status = condition;
-  for (const action of ["status", "suggest", "repair", "authorize", "diagnose", "apply", "undo"]) {
-    const res = await request(action, { docId: "source", consent: true, id: "forged" });
-    expect(res.status).toBe(402);
-    expect((await res.json()).code).toBe("housekeeper_requires_pro");
-  }
-  expect(peekContent).not.toHaveBeenCalled(); expect(editContent).not.toHaveBeenCalled();
-});
-it.each(["active", "past_due"])("permits %s Pro status via the optional module", async status => {
-  state.status = status;
+it("serves status through the optional module", async () => {
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   const res = await request(); expect(res.status).toBe(200);
   expect(await res.json()).toMatchObject({ available: true, provider: "OpenRouter", model: "typesafe/jev-1.13" });
@@ -91,17 +78,13 @@ it("OpenRouter SDK serializes the chat adapter's strict schema", async () => {
   expect((await chooseCandidate(router, { mode: "chat", model: "test/chat" }, {}, [{ id: "a", path: "a.md", title: "A", excerpt: "hello" }])).candidateId).toBe("a");
   expect(payload.response_format).toMatchObject({ type: "json_schema", json_schema: { strict: true } });
 });
-it("complete HTTP preview/apply uses the locked revision planner and rejects a downgrade", async () => {
+it("complete HTTP preview/apply uses the locked revision planner", async () => {
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ model: "typesafe/jev-1.13", answers: { target: { type: "choice", choice: "c0", confidence: 0.99 } }, usage: { input_tokens: 100, output_tokens: 10 } })));
   const preview = await request("suggest", { docId: "source", consent: true });
   expect(preview.status).toBe(200);
   const { suggestions } = await preview.json();
   expect(suggestions).toHaveLength(1);
-  state.plan = "free";
-  expect((await request("apply", { id: suggestions[0].id })).status).toBe(402);
-  expect(editContent).not.toHaveBeenCalled();
-  state.plan = "pro";
   editContent.mockImplementation(async (_vault, _doc, planner) => {
     expect(() => planner("human edit")).toThrow("The note changed");
     expect(planner("See [[Pricing]]")).toEqual([{ index: 4, deleteLength: 11, insert: "[[Pricing strategy]]" }]);
@@ -109,21 +92,6 @@ it("complete HTTP preview/apply uses the locked revision planner and rejects a d
   });
   expect((await request("apply", { id: suggestions[0].id })).status).toBe(200);
   expect(editContent).toHaveBeenCalledWith("vault", "source", expect.any(Function), { userId: "u" });
-});
-
-it("local preview requires explicit development mode and a loopback database", async () => {
-  state.plan = "free";
-  vi.stubEnv("HOUSEKEEPER_LOCAL_PREVIEW", "true");
-  vi.stubEnv("DATABASE_URL", "postgres://localhost/test");
-  vi.stubEnv("NODE_ENV", "production");
-  expect((await request()).status).toBe(402);
-  vi.stubEnv("NODE_ENV", "development");
-  vi.stubEnv("DATABASE_URL", "postgres://remote.example/test");
-  expect((await request()).status).toBe(402);
-  vi.stubEnv("DATABASE_URL", "postgres://localhost/test");
-  expect((await request()).status).toBe(200);
-  state.member = false;
-  expect((await request()).status).toBe(403);
 });
 
 it("inference requires a personal key even when a server key exists", async () => {
@@ -142,14 +110,4 @@ it("local rename authorization requires live edit permission without returning n
   expect((await request("authorize", { docId: "source" })).status).toBe(403);
   state.permission = "edit";
   expect((await request("authorize", { docId: "source" }, "other-vault")).status).toBe(404);
-});
-
-it.each(["", "operator-billing"])("includes Assistant for self-hosters with billing token %s", async token => {
-  vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "self-hosted"); vi.stubEnv("POLAR_ACCESS_TOKEN", token); state.plan = "free";
-  expect((await request()).status).toBe(200);
-});
-
-it("Cloud Free stays blocked when billing credentials are absent", async () => {
-  state.plan = "free"; vi.stubEnv("POLAR_ACCESS_TOKEN", "");
-  expect((await request()).status).toBe(402);
 });

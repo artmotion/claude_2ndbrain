@@ -11,7 +11,6 @@ import {
   canWriteBlob,
   filterReadableBlobs,
 } from "../../permissions/http-gates.js";
-import { ACCOUNT_READ_ONLY_BODY, refusedForBilling } from "../../permissions/http-gates.js";
 import { getSession } from "../session.js";
 import { relAssetPath } from "../../render/note-html.js";
 import { config } from "../../config.js";
@@ -25,8 +24,6 @@ import {
 } from "../../blobs/config.js";
 import { objectKey } from "../../blobs/keys.js";
 import { docsReferencing } from "../../blobs/refs.js";
-import { canSyncAttachments, storageLimitBytes } from "../../billing/entitlements.js";
-import { teamModel } from "../../billing/plan.js";
 import { verifyUploadToken } from "../../blobs/upload-token.js";
 import {
   registerCtx,
@@ -57,11 +54,8 @@ import {
  * `src/blobs/` — the store adapter, its Postgres provider, the format
  * allow-list and the upload admission budget.
  *
- * Authorization mirrors the registry routes and then applies the attachment
- * sync entitlement for standalone files. Embedded attachments sync on every
- * plan within storage quotas; standalone files require Pro when billing is on. A plan refusal is
- * always 402 `attachment_sync_requires_pro`; deletion stays available so a
- * downgrade never prevents cleanup of bytes already stored.
+ * Authorization mirrors the registry routes: embedded attachments and
+ * standalone files sync alike, judged by the same ACL as the notes.
  *
  *   POST /api/vaults/:vaultId/blobs          raw binary body → store (legacy, dedupe by sha256)
  *   POST /api/vaults/:vaultId/blobs/intent   declare a file → dedupe answer or an upload URL
@@ -75,7 +69,7 @@ import {
  *   HEAD /api/blobs/:id                      the same headers, no body
  *   PUT  /api/vaults/:vaultId/blobs/:blobId/text   the file's extracted plain text
  *   DELETE /api/blobs/:id                    remove an attachment (409 if referenced)
- *   GET  /api/vaults/:vaultId/storage        how much of the quota this vault uses
+ *   GET  /api/vaults/:vaultId/storage        how much storage this vault uses
  *
  * THE INTENT FLOW, and why it is the same three steps for both providers:
  *
@@ -85,7 +79,7 @@ import {
  * and reading `deduped: true` off the response, so every new device re-uploads
  * every attachment in full to learn that nothing was needed. `intent` answers it
  * with a JSON round trip and ZERO bytes, and checks ACL, rel_path, MIME, the
- * size cap and (PR 2c) quota BEFORE anything moves. The S3 provider returns a
+ * size cap BEFORE anything moves. The S3 provider returns a
  * presigned bucket URL and the Postgres provider returns a signed same-origin
  * `PUT /api/blobs/:id/data?t=`, in the same envelope, so the client has one code
  * path. The legacy POST keeps working unchanged, forever — shipped desktops use
@@ -164,12 +158,7 @@ async function registerRefusal(
   out: Extract<StructResult<FileRow>, { status: "error" }>,
   vaultId?: string | null,
 ): Promise<Response> {
-  if (out.code === "no_write_access" && vaultId && (await refusedForBilling(await vaultOrg(vaultId)))) {
-    return c.json(ACCOUNT_READ_ONLY_BODY, 402);
-  }
   switch (out.code) {
-    case "note_limit_reached":
-      return c.json({ error: out.message, code: out.code, limit: out.limit || 20000 }, 402);
     case "path_folder_mismatch":
     case "transient_file":
       return c.json({ error: out.message, code: out.code }, 400);
@@ -237,44 +226,15 @@ async function withRegistration<T>(
 
 const uploadBudget = new ByteBudget(MAX_INFLIGHT_UPLOAD_BYTES);
 
-/** One stable contract for every authenticated attachment-sync surface. */
-async function attachmentSyncDenied(orgId: string, relPath: string | null, docId: string | null): Promise<boolean> {
-  // Editor-owned attachments are part of notes on every plan. A registered
-  // standalone file still requires Pro, even if its path resembles an embed.
-  if (!docId && safeAttachmentRelPath(relPath)) return false;
-  return !(await canSyncAttachments(orgId));
-}
-
-/**
- * An upload whose path resolved to neither a registered `files` row nor an
- * `attachments/` path. That is a standalone file by definition — so on a vault
- * that cannot sync standalone files, the plan is the real answer and it must
- * come FIRST. Answering 400 `invalid_rel_path` instead hid the 402 the desktop
- * reacts to (upgrade notice, stop retrying): a Free vault's binaries retried a
- * guaranteed 400 on every pass, forever, with no explanation (prod 2026-09-23).
- */
-async function unlocatedUpload(c: Context, orgId: string): Promise<Response> {
-  if (!(await canSyncAttachments(orgId))) return attachmentSyncRequired(c);
+/** An upload whose path resolved to neither a registered `files` row nor an
+ *  `attachments/` path. */
+function unlocatedUpload(c: Context): Response {
   return c.json(
     {
       error: "Attachment path must be a vault-relative path under attachments/",
       code: "invalid_rel_path",
     },
     400,
-  );
-}
-
-function attachmentSyncRequired(c: Context): Response {
-  return c.json(
-    {
-      error: teamModel()
-        ? "Standalone file sync requires the Team plan"
-        : "Standalone file sync requires a Pro vault",
-      // Wire code kept: desktops match it exactly.
-      code: "attachment_sync_requires_pro",
-      requiredPlan: teamModel() ? "team" : "pro",
-    },
-    402,
   );
 }
 
@@ -445,15 +405,13 @@ blobRoutes.post(
       claimedDoc,
       c.req.header("x-rel-path") ?? c.req.query("relPath") ?? filename,
     );
-    if (!located) return unlocatedUpload(c, org);
+    if (!located) return unlocatedUpload(c);
     const { relPath, docId } = located;
-    if (await attachmentSyncDenied(org, relPath, docId)) return attachmentSyncRequired(c);
 
     // Uploading is a write. A Read-only vault has to refuse it too, or
     // "read-only" would let anyone keep adding bytes to the vault's blob store;
     // for a tree file the gate is its own folder's (see `canWriteBlob`).
     if (!(await canWriteBlob(session.userId, { vault_id: vaultId, rel_path: relPath, doc_id: docId }))) {
-      if (await refusedForBilling(org)) return c.json(ACCOUNT_READ_ONLY_BODY, 402);
       return c.json({ error: "This vault is read-only for you" }, 403);
     }
 
@@ -886,36 +844,6 @@ async function storageUsage(
   };
 }
 
-/**
- * Storage quota. Answers the 402 body, or null when the upload fits.
- *
- * The ORDER this is called in is the load-bearing part: quota is the LAST gate,
- * after ACL and after the per-file caps, so a request that would be refused
- * anyway never costs a `sum()` over the vault's blobs. The limit lookup comes
- * before the sum for the same reason — an unlimited vault (self-host, or any
- * paid one) never runs the aggregate at all.
- *
- * `excludeBlobId` is for the defensive check at `complete`, where the blob's own
- * pending row is already inside the sum and would otherwise be counted twice.
- */
-async function checkStorageQuota(
-  vaultId: string,
-  orgId: string,
-  addedBytes: number,
-  excludeBlobId: string | null = null,
-): Promise<{ error: string; code: string; limitBytes: number; usedBytes: number } | null> {
-  const limitBytes = await storageLimitBytes(orgId);
-  if (limitBytes === null) return null;
-  const { usedBytes } = await storageUsage(vaultId, excludeBlobId);
-  if (usedBytes + addedBytes <= limitBytes) return null;
-  return {
-    error: `This vault has used its ${Math.round(limitBytes / (1024 * 1024))} MB of attachment storage`,
-    code: "storage_limit_reached",
-    limitBytes,
-    usedBytes,
-  };
-}
-
 /** A positive, integral byte count, or null. */
 function normalizeSize(raw: unknown): number | null {
   const n = typeof raw === "number" ? raw : Number(raw);
@@ -930,7 +858,7 @@ function normalizeSize(raw: unknown): number | null {
  * WHERE this is going (the `docId`/rel_path resolution — which decides which
  * ACL applies, so it has to come first now that a tree file answers to its own
  * folder), then write access, then the rest of the shape (MIME), then the size
- * cap for that MIME on THIS provider, then quota. Each is cheaper than the one
+ * cap for that MIME on THIS provider. Each is cheaper than the one
  * after it, and all of them run before a byte moves.
  */
 blobRoutes.post("/vaults/:vaultId/blobs/intent", async (c) => {
@@ -969,11 +897,10 @@ blobRoutes.post("/vaults/:vaultId/blobs/intent", async (c) => {
   // tree file the registry does not know YET. The `files` row is created by
   // `complete` (or right here on a dedupe hit), never before the bytes are
   // accounted for — so every gate that decides whether it MAY exist runs now,
-  // before any row is written: Pro first (the plan is the real answer, see
-  // `unlocatedUpload`), then a rolled-back `registerFile` that runs the files
+  // before any row is written: a rolled-back `registerFile` that runs the files
   // route's exact sequence — adopt-by-path, `resolveParentFolder`
   // (`path_folder_mismatch`), the CREATE gate on the destination folder
-  // (`canCreateIn` / `vaultRootWritable`) and the frozen root. A 402/403/400
+  // (`canCreateIn` / `vaultRootWritable`) and the frozen root. A 403/400
   // here leaves nothing behind.
   const register = parseRegister(body.register);
   if (register && "invalid" in register) {
@@ -989,7 +916,6 @@ blobRoutes.post("/vaults/:vaultId/blobs/intent", async (c) => {
       // Already registered: an ordinary upload for that file (the old flow).
       claimedDoc = register.docId;
     } else {
-      if (!(await canSyncAttachments(org))) return attachmentSyncRequired(c);
       const dry = await withRegistration(vaultId, session.userId, register, false, async (out) => out);
       if (dry.status === "error") return registerRefusal(c, dry, vaultId);
       // `adopted` ⇒ a file already lives at this path (under another id):
@@ -1009,9 +935,8 @@ blobRoutes.post("/vaults/:vaultId/blobs/intent", async (c) => {
         claimedDoc,
         typeof body.relPath === "string" ? body.relPath : filename,
       );
-  if (!located) return unlocatedUpload(c, org);
+  if (!located) return unlocatedUpload(c);
   const { relPath, docId } = located;
-  if (await attachmentSyncDenied(org, relPath, docId)) return attachmentSyncRequired(c);
 
   // Write access, now that we know WHAT is being written: a tree file answers
   // to its folder, an attachment to the vault posture (see `canWriteBlob`).
@@ -1021,7 +946,6 @@ blobRoutes.post("/vaults/:vaultId/blobs/intent", async (c) => {
     !pending &&
     !(await canWriteBlob(session.userId, { vault_id: vaultId, rel_path: relPath, doc_id: docId }))
   ) {
-    if (await refusedForBilling(org)) return c.json(ACCOUNT_READ_ONLY_BODY, 402);
     return c.json({ error: "This vault is read-only for you" }, 403);
   }
 
@@ -1112,9 +1036,6 @@ blobRoutes.post("/vaults/:vaultId/blobs/intent", async (c) => {
     sha256,
   );
   if (stale) return staleBase(c, stale);
-
-  const quota = await checkStorageQuota(vaultId, org, size);
-  if (quota) return c.json(quota, 402);
 
   // An existing PENDING row for the same content is re-used rather than
   // conflicting: the per-doc unique index would refuse a second insert anyway, and
@@ -1574,9 +1495,7 @@ blobRoutes.post("/blobs/:id/complete", async (c) => {
   // instead, inside the transaction below that creates the row.
   const pendingReg =
     row.status === "pending" && row.vault_id ? storedRegister(row.pending_register) : null;
-  if (await attachmentSyncDenied(org, row.rel_path, row.doc_id)) return attachmentSyncRequired(c);
   if (row.vault_id && !pendingReg && !(await canWriteBlob(session.userId, row))) {
-    if (await refusedForBilling(org)) return c.json(ACCOUNT_READ_ONLY_BODY, 402);
     return c.json({ error: "This vault is read-only for you" }, 403);
   }
 
@@ -1666,23 +1585,6 @@ blobRoutes.post("/blobs/:id/complete", async (c) => {
       }
     }
 
-    // Quota again, defensively. `intent` already checked it, but the object
-    // has been sitting in the store since then and OTHER uploads may have
-    // landed in between; this is the last moment the bytes can be refused
-    // before they become a listed attachment. The blob's own pending row is
-    // excluded from the sum — it is already in there, and counting the same
-    // bytes twice would refuse an upload that fits.
-    if (row.vault_id) {
-      const quota = await checkStorageQuota(row.vault_id, org, head.size, row.id);
-      if (quota) {
-        // Same disposal as a failed verification: the object goes, and the
-        // pending row goes with it so it stops holding the dedupe slot.
-        await store.delete(key).catch(() => {});
-        await pool.query("DELETE FROM blobs WHERE id = $1 AND status = 'pending'", [row.id]);
-        return c.json(quota, 402);
-      }
-    }
-
     if (pendingReg && row.vault_id) {
       return await completeWithRegistration(c, row, row.vault_id, session.userId, pendingReg, head.size);
     }
@@ -1749,7 +1651,6 @@ blobRoutes.put("/vaults/:vaultId/blobs/:blobId/text", async (c) => {
     return c.json({ error: "Blob not found" }, 404);
   }
 
-  if (await attachmentSyncDenied(org, row.rel_path, row.doc_id)) return attachmentSyncRequired(c);
 
   let body: Record<string, unknown>;
   try {
@@ -1784,11 +1685,9 @@ blobRoutes.put("/vaults/:vaultId/blobs/:blobId/text", async (c) => {
   // what the vault's search says the file contains, so writing it is a write to
   // that doc, not merely to the vault's blob store.
   if (!(await canWriteBlob(session.userId, row))) {
-    if (await refusedForBilling(org)) return c.json(ACCOUNT_READ_ONLY_BODY, 402);
     return c.json({ error: "This vault is read-only for you" }, 403);
   }
   if (row.doc_id && !(await canEditDoc(session.userId, row.doc_id))) {
-    if (await refusedForBilling(org)) return c.json(ACCOUNT_READ_ONLY_BODY, 402);
     return c.json({ error: "This file is read-only for you" }, 403);
   }
 
@@ -1957,9 +1856,6 @@ async function authorizeDownload(
   const org = blob.vault_id ? await vaultOrg(blob.vault_id) : blob.org_id;
   if (!org || !(await orgRole(org, session.userId))) {
     return { deny: c.json({ error: "Not a member of this vault" }, 403) };
-  }
-  if (await attachmentSyncDenied(org, blob.rel_path, blob.doc_id)) {
-    return { deny: attachmentSyncRequired(c) };
   }
   // Per-attachment ACL: a scoped member may only download a blob referenced by
   // a note they can read (owner/admin + Open vaults are allowed everything).
@@ -2209,19 +2105,18 @@ async function purgeBlobText(blobId: string): Promise<void> {
   }
 }
 
-// ── quota ─────────────────────────────────────────────────────────────────
+// ── storage ───────────────────────────────────────────────────────────────
 
 /**
- * How much attachment storage this vault uses, and how much it is allowed.
+ * How much attachment storage this vault uses.
  *
  * Member-gated rather than write-gated: this is the number a client shows
  * BEFORE offering an upload, and someone who can only read the vault still
  * needs to understand why a teammate's upload was refused. It names no
  * individual blob, so it tells a scoped member nothing the per-blob ACL hides.
  *
- * `limitBytes: null` means unlimited — self-host with billing off, or any vault
- * with an active subscription — and is deliberately not `Infinity` or a huge
- * number, so a client renders "unlimited" instead of a meaningless bar.
+ * `limitBytes` is always null (unlimited); it stays in the answer for older
+ * desktops, which render null as "unlimited".
  */
 blobRoutes.get("/vaults/:vaultId/storage", async (c) => {
   const session = await getSession(c);
@@ -2235,8 +2130,7 @@ blobRoutes.get("/vaults/:vaultId/storage", async (c) => {
   }
 
   const usage = await storageUsage(vaultId);
-  const limitBytes = await storageLimitBytes(org);
-  return c.json({ ...usage, limitBytes });
+  return c.json({ ...usage, limitBytes: null });
 });
 
 /**

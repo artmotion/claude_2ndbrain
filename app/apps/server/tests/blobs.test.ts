@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/http/app.js";
 import { testAppDeps } from "./helpers/app.js";
 import { pool } from "../src/db/pool.js";
@@ -76,33 +76,7 @@ describe("attachment blob store (spec 02 §2/§5A)", () => {
     await resetDb();
   });
 
-  afterEach(() => { delete process.env.POLAR_ACCESS_TOKEN; });
-
-  it("keeps standalone bytes Pro-only while exposing readable metadata", async () => {
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
-    const owner = await signUp("owner@standalone.com");
-    const org = await seedOrg("Files", "standalone-plan");
-    await seedMember(org, owner.userId, "owner");
-    const vault = await seedVault(org);
-    await seedVaultGrant(org, "edit");
-    const docId = await seedFile(vault, null, "report.pdf");
-    const blobId = await seedBlob(vault, org, "report.pdf", { docId });
-    expect((await listBlobs(owner.token, vault)).status).toBe(200);
-    const denied = await downloadBlob(owner.token, blobId);
-    expect(denied.status).toBe(402);
-    expect(await denied.json()).toMatchObject({ code: "attachment_sync_requires_pro" });
-    const upload = await app.fetch(new Request(`http://local/api/vaults/${vault}/blobs/intent`, {
-      method: "POST", headers: { authorization: `Bearer ${owner.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ docId, relPath: "attachments/disguised.pdf", sha256: "a".repeat(64), size: 3, mime: "application/pdf" }),
-    }));
-    expect(upload.status).toBe(402);
-  });
-
-  it("answers the plan, not the path, for a tree file with no usable files row on Free", async () => {
-    // prod 2026-09-23: a Free vault's binaries sent intents with no (or a dead)
-    // docId; the 400 `invalid_rel_path` came before the plan check, so the
-    // desktop never saw the 402 that stops its retries and shows the notice.
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
+  it("refuses a tree file with no usable files row as an invalid path", async () => {
     const owner = await signUp("owner@free-tree.com");
     const org = await seedOrg("Free Tree", "free-tree");
     await seedMember(org, owner.userId, "owner");
@@ -117,18 +91,12 @@ describe("attachment blob store (spec 02 §2/§5A)", () => {
 
     for (const extra of [{}, { docId: "never-registered" }]) {
       const res = await intent({ relPath: "Shots/review_1.jpg", ...extra });
-      expect(res.status).toBe(402);
-      expect(await res.json()).toMatchObject({ code: "attachment_sync_requires_pro" });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ code: "invalid_rel_path" });
     }
-
-    // Billing off (a self-host): the path is still wrong, and says so.
-    delete process.env.POLAR_ACCESS_TOKEN;
-    const res = await intent({ relPath: "Shots/review_1.jpg" });
-    expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({ code: "invalid_rel_path" });
   });
 
-  it("keeps pre-update embedded images available to existing Free members without rewriting them", async () => {
+  it("keeps pre-update embedded images available to members without rewriting them", async () => {
     const owner = await signUp("owner@legacy-images.com");
     const member = await signUp("member@legacy-images.com");
     const outsider = await signUp("outsider@legacy-images.com");
@@ -147,7 +115,6 @@ describe("attachment blob store (spec 02 §2/§5A)", () => {
     const docId = await seedNote(vault, null, "Existing note.md");
     const markdown = "My original note ![photo](/attachments/old-image.png)";
     await indexNote(docId, vault, markdown);
-    process.env.POLAR_ACCESS_TOKEN = "test-token";
     const listed = await listBlobs(member.token, vault);
     expect(listed.status).toBe(200);
     expect(await listed.json()).toMatchObject({ blobs: [expect.objectContaining({ id: blob.id, relPath: blob.relPath, sha256: blob.sha256 })] });
@@ -159,8 +126,7 @@ describe("attachment blob store (spec 02 §2/§5A)", () => {
     expect(unchanged.rows[0].content).toBe(markdown);
   });
 
-  it.each([false, true])("embedded upload → list → download round-trips (billing %s)", async (billing) => {
-    if (billing) process.env.POLAR_ACCESS_TOKEN = "test-token";
+  it("embedded upload → list → download round-trips", async () => {
     const owner = await signUp("owner@blob.com");
     const org = await seedOrg("Acme", "acme-blob1");
     await seedMember(org, owner.userId, "owner");

@@ -25,12 +25,6 @@ export const APP_SCHEME: string =
   (import.meta.env.VITE_DEEP_LINK_SCHEME as string | undefined)?.trim() ||
   (import.meta.env.MODE === "development" ? "secondbrain-dev" : "secondbrain");
 
-/** Which build this is, named for the server (checkout hand-back). */
-export type AppChannel = "production" | "staging" | "dev";
-
-export const APP_CHANNEL: AppChannel =
-  APP_SCHEME === "secondbrain-staging" ? "staging" : APP_SCHEME === "secondbrain-dev" ? "dev" : "production";
-
 const ACCEPTED_PROTOCOLS = new Set([
   "secondbrain:",
   "secondbrain-staging:",

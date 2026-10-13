@@ -362,9 +362,9 @@ describe("a `files` row is not its bytes", () => {
     expect(log.confirmed).toEqual(["Team/report.docx"]);
   });
 
-  it("registers the row but confirms NOTHING when the plan refuses the upload", async () => {
+  it("registers the row but confirms NOTHING when the upload fails", async () => {
     const createIntent = vi.fn(async () => {
-      throw serverError(402, "attachment_sync_requires_pro");
+      throw serverError(503, "storage_unavailable");
     });
     const { sync, log } = makeVault([{ relPath: "Team/report.docx" }], { createIntent });
     const res = await sync.reconcile();

@@ -30,7 +30,7 @@ export function createRefusalBanner(args: {
   return createRefusalBannerText(groupCreateRefusals(refusals));
 }
 
-/** Presentational, reusing the shared `Banner` shape like `NoteLimitBannerView`. */
+/** Presentational, reusing the shared `Banner` shape. */
 export function CreateRefusalBannerView({
   text,
   onDismiss,

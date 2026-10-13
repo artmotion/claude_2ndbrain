@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Agent engine host: included for self-hosting, Pro-gated on 2ndBrain Cloud.
-import { resolveAccountPlan, teamModel } from "../../billing/plan.js";
-import { requiresCloudPlan } from "../../deployment-policy.js";
+// Agent engine host.
 import { OpenRouter } from "@openrouter/sdk";
 import { Hono } from "hono";
 import { access } from "node:fs/promises";
@@ -18,7 +16,6 @@ import { VERSION_CONTENT, VERSION_TEXT_JOIN } from "../../versions/texts.js";
 export interface HousekeeperNote { id: string; path: string; title: string }
 export interface HousekeeperHost {
   authorize(): Promise<void>;
-  requiresPro?(): boolean;
   providerConfig?(): { mode: string; model: string; configured: boolean };
   createRouter(): OpenRouter;
   notes(): Promise<HousekeeperNote[]>;
@@ -31,30 +28,7 @@ export interface HousekeeperExtension {
   handle(action: string, body: unknown, scope: string, host: HousekeeperHost): Promise<unknown>;
 }
 export class HousekeeperError extends Error {
-  constructor(public status: 400 | 401 | 402 | 403 | 404 | 409 | 429 | 503, message: string) { super(message); }
-}
-
-/** Self-hosters have access regardless of billing; Cloud vaults require Pro. */
-export async function requireHousekeeperPro(orgId: string): Promise<void> {
-  if (!requiresCloudPlan()) return;
-  // Explicit local preview only; never implied by disabled billing or a client flag.
-  if (process.env.NODE_ENV === "development" && process.env.HOUSEKEEPER_LOCAL_PREVIEW === "true") {
-    try {
-      const database = new URL(process.env.DATABASE_URL ?? "");
-      if (["localhost", "127.0.0.1", "[::1]"].includes(database.hostname)) return;
-    } catch { /* Missing/malformed configuration keeps the Pro gate closed. */ }
-  }
-  if (teamModel()) {
-    // Team model: `limits.assistant` (self-host / billing off ⇒ true).
-    const plan = await resolveAccountPlan(pool, { orgId });
-    if (!plan.limits.assistant) throw new HousekeeperError(402, "2ndBrain Assistant requires the Team plan.");
-    return;
-  }
-  const { rows } = await pool.query<{ allowed: boolean }>(
-    `SELECT (plan = 'pro' AND status IN ('active', 'past_due') AND deleted_at IS NULL) AS allowed
-       FROM subscriptions WHERE organization_id = $1`, [orgId],
-  );
-  if (rows[0]?.allowed !== true) throw new HousekeeperError(402, "Housekeeper requires a Pro vault.");
+  constructor(public status: 400 | 401 | 403 | 404 | 409 | 429 | 503, message: string) { super(message); }
 }
 
 async function loadExtension(): Promise<HousekeeperExtension | null> {
@@ -79,7 +53,6 @@ export function createHousekeeperRoutes(docWriter: DocWriter): Hono {
       const authorize = async () => {
         const orgId = await vaultOrg(vaultId);
         if (!orgId || !await orgRole(orgId, userId)) throw new HousekeeperError(403, "Vault access denied.");
-        await requireHousekeeperPro(orgId);
       };
       await authorize(); // Before loading the agent engine, reading notes or calling a model.
       const extension = await loadExtension();
@@ -104,7 +77,6 @@ export function createHousekeeperRoutes(docWriter: DocWriter): Hono {
       }
       const host: HousekeeperHost = {
         authorize,
-        requiresPro: requiresCloudPlan,
         providerConfig: () => ({ mode: provider?.mode ?? "decisions", model: provider?.model ?? "typesafe/jev-1.13", configured: true }),
         createRouter: () => new OpenRouter({ apiKey: provider?.apiKey, appTitle: "2ndBrain Housekeeper", timeoutMs: 12_000, retryConfig: { strategy: "none" } }),
         async notes() {
@@ -154,14 +126,10 @@ export function createHousekeeperRoutes(docWriter: DocWriter): Hono {
     } catch (error) {
       // Commercial modules return public errors by status; never expose provider bodies/keys.
       const status = error instanceof Error && "status" in error ? Number(error.status) : 503;
-      const allowed = [400, 401, 402, 403, 404, 409, 429, 503] as const;
+      const allowed = [400, 401, 403, 404, 409, 429, 503] as const;
       const code = allowed.includes(status as typeof allowed[number]) ? status as typeof allowed[number] : 503;
       return c.json({ error: code === 503 ? "Housekeeper is unavailable. Check the server's provider configuration and retry." : (error as Error).message,
-        // Team model names the plan; `legacyCode` keeps the token older builds knew
-        // (desktops gate on the 402 status itself, never on the code).
-        ...(code === 402 && teamModel()
-          ? { code: "housekeeper_requires_team", legacyCode: "housekeeper_requires_pro", requiredPlan: "team" }
-          : { code: code === 402 ? "housekeeper_requires_pro" : "housekeeper_unavailable" }) }, code);
+        code: "housekeeper_unavailable" }, code);
     }
   });
   return routes;

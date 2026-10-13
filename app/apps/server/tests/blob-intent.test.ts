@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/http/app.js";
 import { testAppDeps } from "./helpers/app.js";
 import { pool } from "../src/db/pool.js";
@@ -96,10 +96,8 @@ describe("blob intent → PUT → complete", () => {
     await resetDb();
   });
 
-  afterEach(() => { delete process.env.POLAR_ACCESS_TOKEN; });
 
-  it.each([false, true])("uploads an embedded attachment in three steps (billing %s)", async (billing) => {
-    if (billing) process.env.POLAR_ACCESS_TOKEN = "test-token";
+  it("uploads an embedded attachment in three steps", async () => {
     const { owner, vault } = await setup("intent-happy");
     const sha = shaOf(PNG);
 

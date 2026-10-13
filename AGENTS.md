@@ -33,7 +33,7 @@ on the same notes in real time.
 - Desktop `src/lib/sync/`: sessions, registry, vault channel, uploads, inbound
   changes, attachments, and bulk synchronization.
 - `app/apps/server/src/`: Hono HTTP, Hocuspocus sync, Better Auth, Postgres,
-  permissions, blobs, billing, and MCP. Start at `index.ts` / `http/app.ts`.
+  permissions, blobs, and MCP. Start at `index.ts` / `http/app.ts`.
 - Server `src/permissions/`: shared authorization rules; `src/registry/tree-ops.ts`:
   structural operations shared by HTTP and MCP.
 - `ee/`: separately licensed commercial features. The website is outside this repo.

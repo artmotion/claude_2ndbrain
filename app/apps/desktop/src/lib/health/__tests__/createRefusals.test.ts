@@ -26,7 +26,7 @@ function input(over: Partial<HealthInput> = {}): HealthInput {
     docIdByPath: {},
     docSyncState: {},
     localNotePaths: [],
-    failures: { registry: [], content: [], limitCode: null },
+    failures: { registry: [], content: [] },
     stats: null,
     ...over,
   };
@@ -111,7 +111,6 @@ describe("Health — creates refused for access", () => {
             refused("top.md", "root_frozen"),
           ],
           content: [],
-          limitCode: null,
         },
       }),
     );
@@ -141,7 +140,6 @@ describe("Health — creates refused for access", () => {
         failures: {
           registry: [refused("gone.md", "note_deleted"), refused("Reports/a.md", "no_write_access")],
           content: [],
-          limitCode: null,
         },
       }),
     );

@@ -114,63 +114,6 @@ export const vaults = [
     rootFrozen: false,
   },
 ];
-export const billingConfig = {
-  enabled: true,
-  plans: [
-    {
-      id: "preview-pro-monthly",
-      label: "Pro monthly (sample)",
-      amount: 1000,
-      currency: "USD",
-      interval: "month",
-    },
-    {
-      id: "preview-pro-yearly",
-      label: "Pro yearly (sample)",
-      amount: 10000,
-      currency: "USD",
-      interval: "year",
-    },
-  ],
-  freeLimits: { vaultsPerUser: 3, membersPerVault: 5, notesPerVault: 20000 },
-};
-export const orgBilling = {
-  plan: "pro",
-  status: "active",
-  currentPeriodEnd: ago(-720),
-  cancelAtPeriodEnd: false,
-  interval: "month",
-  amount: 1000,
-  currency: "USD",
-  seats: { members: 4, pendingInvitations: 1, limit: null },
-};
-const myBilling = () => ({
-  vaults: organizations.map((o, i) => ({
-    orgId: o.id,
-    name: o.name,
-    role: "owner",
-    ...orgBilling,
-    ...(i
-      ? {
-          plan: "free",
-          status: "none",
-          amount: null,
-          interval: null,
-          currency: null,
-          currentPeriodEnd: null,
-        }
-      : {}),
-    billingOwner: {
-      userId: users[0].id,
-      name: users[0].name,
-      email: users[0].email,
-    },
-    canManage: true,
-    canTransfer: !i,
-  })),
-  orphaned: [],
-  freeLimits: { ...billingConfig.freeLimits, freeVaultsUsed: 1 },
-});
 const tokens = [
   {
     id: "preview-mcp-1",
@@ -405,11 +348,6 @@ export async function previewFetch(
       publicLinks: publicLinks.size,
       mcpTokens: tokens.length,
       checkpoints: checkpoints.length,
-      subscription: {
-        status: orgBilling.status,
-        currentPeriodEnd: orgBilling.currentPeriodEnd,
-        cancelAtPeriodEnd: false,
-      },
     });
   if (p.endsWith("/status") && p.startsWith("/api/orgs/"))
     return ok({ orgId: ORG, name: organizations[0].name, role: "owner" });
@@ -518,11 +456,6 @@ export async function previewFetch(
   if (p.endsWith("/join-code")) return ok({ code: "DEMO-ONLY" });
   if (/^\/api\/orgs\/[^/]+$/.test(p) && method === "GET")
     return ok({ orgId: ORG, name: organizations[0].name, role: "owner" });
-  if (p === "/api/billing/config") return ok(billingConfig);
-  if (p === "/api/billing/mine") return ok(myBilling());
-  if (/^\/api\/billing\/orgs\/[^/]+$/.test(p)) return ok(orgBilling);
-  if (p.startsWith("/api/billing/"))
-    return blocked("Payment actions are unavailable in this visual preview.");
   if (p === "/api/mcp/tokens") {
     if (method === "POST") {
       const row = {
@@ -633,7 +566,6 @@ export async function previewFetch(
   if (p.endsWith("/invitation-expiries")) return ok({ items: [] });
   if (p.endsWith("/housekeeper/status"))
     return ok({
-      requiresPro: true,
       available: true,
       provider: "Sample provider — no live inference",
       model: "Preview only",
@@ -669,9 +601,6 @@ export const initialStore = {
   pendingInvitations: invitations,
   userInvitations: [],
   organizations,
-  billingConfig,
-  orgBilling,
-  myBilling: myBilling(),
   serverUrl: "http://preview.invalid",
   session: { user: users[0], activeOrganizationId: ORG },
   docIdByPath: Object.fromEntries(notes.map((n) => [n.relPath, n.id])),

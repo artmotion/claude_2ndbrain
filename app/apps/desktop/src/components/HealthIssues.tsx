@@ -406,7 +406,6 @@ const ROW_ACTIONS: ReadonlySet<HealthRemedy> = new Set<HealthRemedy>([
   "retry",
   "open",
   "reregister",
-  "upgrade",
   "sign-in",
   "reset-history",
   "contact-owner",
@@ -559,12 +558,6 @@ function Remedy({
           onClick={() => confirm({ kind: "delete", path: issue.path as string })}
         >
           Delete
-        </button>
-      );
-    case "upgrade":
-      return (
-        <button type="button" className="primary sm" onClick={() => actions.openUpgrade()}>
-          Upgrade
         </button>
       );
     case "reset-history":

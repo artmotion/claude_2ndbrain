@@ -87,7 +87,7 @@ n/a = synchronous or sub-100ms by construction.
 
 | Action | Work | Latency | Feedback |
 | --- | --- | --- | --- |
-| Sign in / Create account | auth + roster + billing + land in a vault | 1–5s | ✅ label + spinner |
+| Sign in / Create account | auth + roster + land in a vault | 1–5s | ✅ label + spinner |
 | Continue with Google | system browser + loopback | up to 3 min | ✅ "Waiting for your browser…" + spinner + Cancel |
 | Save server URL | re-read session against a new host | 0.3–2s | ✅ spinner + tick |
 
@@ -103,15 +103,11 @@ n/a = synchronous or sub-100ms by construction.
 | New vault (menu) | create org → folder → seed | 1–3s | ✅ existing busy state |
 | Remove from device | local teardown | 0.2–1s | ✅ spinner |
 | Leave vault | server leave (membership + shares + sockets) → local teardown → folder to Trash | 0.5–3s | ✅ spinner, behind a confirm that names the folder |
-| Delete vault (permanent) | provider cancel-at-period-end (Pro only) → server delete + local teardown | 0.5–4s | ✅ spinner, behind a confirm that names the subscription end |
+| Delete vault (permanent) | server delete + local teardown | 0.5–4s | ✅ spinner, behind a confirm |
 | Delete local vault files | move folder to Trash | 0.2–2s | ✅ spinner, behind a confirm |
 | Invite member | server write + roster refresh | 0.3–1s | ✅ existing busy state |
 | Remove member | server write + ACL broadcast | 0.3–1s | ✅ spinner, behind a confirm |
 | Copy join code | clipboard | instant | ✅ existing "Copied" |
-| Manage subscription | billing portal + browser handoff | 1–4s | ✅ spinner |
-| Transfer subscription (per-vault model only; retired under the Team model) | server write + provider round trip (re-target, un-cancel) | 1–4s | ✅ spinner, behind a confirm |
-| Buy or change Team seats | seat preview + checkout or provider seat update + browser handoff | 1–4s | ✅ spinner |
-| Cancel subscription now | server write + provider round trip | 1–4s | ✅ spinner, behind a confirm |
 | Create / revoke MCP token | server write | 0.3–1s | ✅ spinner |
 | Import files / folder / Export vault | disk walk + registry | 1s–minutes | ✅ existing busy + counts |
 | Change vaults root | native picker + config write | fast | n/a |

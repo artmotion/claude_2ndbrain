@@ -20,7 +20,7 @@ function input(over: Partial<HealthInput> = {}): HealthInput {
     docIdByPath: {},
     docSyncState: {},
     localNotePaths: [],
-    failures: { registry: [], content: [], limitCode: null },
+    failures: { registry: [], content: [] },
     stats: null,
     ...over,
   };
@@ -35,7 +35,6 @@ describe("Health — a failing registry pull", () => {
             { kind: "pull", path: "", docId: null, reason: "HTTP 502", code: "registry_pull_failed" },
           ],
           content: [],
-          limitCode: null,
         },
       }),
     );

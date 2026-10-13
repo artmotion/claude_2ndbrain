@@ -159,7 +159,6 @@ describe("kindLabel", () => {
     "too-large",
     "upload-failed",
     "register-failed",
-    "limit",
     "unregistered",
     "no-access",
     "left-behind",

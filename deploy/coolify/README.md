@@ -120,5 +120,5 @@ Then in the desktop app: **account menu → Server settings →** your
   loopback bind to configure.
 
 Everything else — the Postgres volume, the migrate-then-serve ordering, the
-optional env vars (Google sign-in, Redis, billing) — is identical. Full env
+optional env vars (Google sign-in, Redis) — is identical. Full env
 var reference: [`docs/DEPLOY.md`](../../docs/DEPLOY.md).

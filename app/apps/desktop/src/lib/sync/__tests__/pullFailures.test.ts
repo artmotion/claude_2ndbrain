@@ -19,7 +19,6 @@ const fakeRegistry = vi.hoisted(() => ({
   hasFailures: vi.fn(() => false),
   heldRefusals: vi.fn((): unknown[] => []),
   retryHeldRefusals: vi.fn(() => false),
-  limitCode: vi.fn((): string | null => null),
 }));
 
 vi.mock("../registry", () => ({

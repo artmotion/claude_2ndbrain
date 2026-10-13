@@ -118,7 +118,6 @@ describe("activity feed: held, shrunk, access, failed", () => {
         { kind: "inbound-blocked", path: "h.md", docId: "h1", reason: "held", code: "delete_decision" },
         { kind: "folder", path: "f", docId: null, reason: "nope", code: null },
       ],
-      limitCode: null,
     });
     expect(entries.map((e) => [e.path, e.retryable])).toEqual([
       ["c1.md", true],

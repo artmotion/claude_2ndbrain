@@ -179,54 +179,6 @@ export const config = {
    *  Unset ⇒ bug reports are off and the app hides the button — the default
    *  for a self-host, whose users' reports belong to its own operator. */
   bugReportEmail: optional("BUG_REPORT_EMAIL"),
-  // ---- Subscription billing (Polar) ----
-  /** Polar organization access token. Its presence is the ON switch for the
-   *  whole billing feature (see `billingEnabled` below): unset ⇒ billing is
-   *  disabled, no free-tier limits are enforced (self-host = unlimited), and
-   *  every billing route except GET /api/billing/config returns 404. Set only
-   *  via env, never committed. */
-  polarAccessToken: optional("POLAR_ACCESS_TOKEN"),
-  /** Shared secret for verifying Polar webhook signatures (Standard Webhooks). */
-  polarWebhookSecret: optional("POLAR_WEBHOOK_SECRET"),
-  /** Which Polar API to hit: 'sandbox' (default) or 'production'. */
-  polarServer: optional("POLAR_SERVER") ?? "sandbox",
-  /** Polar product ids for the monthly / yearly Pro plan (from the Polar
-   *  dashboard). Checkout picks one based on the requested interval. */
-  polarProductMonthlyId: optional("POLAR_PRODUCT_MONTHLY_ID"),
-  polarProductYearlyId: optional("POLAR_PRODUCT_YEARLY_ID"),
-  /** Polar seat-based Team products (one per interval). Checkout in `team`
-   *  mode uses these; the legacy ids above only CLASSIFY old subscriptions. */
-  polarProductTeamMonthlyId: optional("POLAR_PRODUCT_TEAM_MONTHLY_ID"),
-  polarProductTeamYearlyId: optional("POLAR_PRODUCT_TEAM_YEARLY_ID"),
-  /** Team list price per seat, minor units (display + preview math only:
-   *  Polar's product price is what is actually charged). */
-  teamPriceMonthlyCents: int("TEAM_PRICE_MONTHLY_CENTS", 1000),
-  teamPriceYearlyCents: int("TEAM_PRICE_YEARLY_CENTS", 11000),
-  /** Fewest seats a Team subscription may hold. */
-  teamMinSeats: int("TEAM_MIN_SEATS", 3),
-  /** Abuse ceilings that apply even to paid Team accounts. */
-  abuseMaxNotes: int("ABUSE_MAX_NOTES", 100000),
-  abuseMaxStorageMb: int("ABUSE_MAX_STORAGE_MB", 10240),
-  /** 'vault' (default: per-vault Pro, FREE_MAX_* caps) or 'team' (per-seat). */
-  billingModel: (optional("BILLING_MODEL") === "team" ? "team" : "vault") as "vault" | "team",
-  /** Free-tier caps (only enforced when billing is enabled). A user may OWN up
-   *  to this many UNSUBSCRIBED vaults; each unsubscribed vault may hold
-   *  up to this many members (incl. pending invitations).
-   *
-   *  New accounts get 2 vaults; migration 031 records the previous allowance
-   *  for every account that existed at rollout. Members remain capped at 3.
-   *  member cap gates only NEW seats — invitations and join-code redemptions
-   *  (`canAddMember`) — so a free vault that already holds more than the cap
-   *  keeps every existing member and simply cannot add another until it goes
-   *  Pro; nobody is removed or locked out by lowering this number. */
-  freeMaxVaults: int("FREE_MAX_VAULTS", 2),
-  freeMaxMembers: int("FREE_MAX_MEMBERS", 3),
-  /** Free-tier attachment storage per unsubscribed vault, in MB. Enforced on
-   *  the same terms as the two caps above — only when billing is enabled, and
-   *  never against a vault with an active subscription (`storageLimitBytes`).
-   *  Like them it gates only NEW uploads: lowering it never deletes a byte, it
-   *  just stops the next one. */
-  freeMaxStorageMb: int("FREE_MAX_STORAGE_MB", 1024),
   /** Hard ceiling on a single note-sync message / note body, in MB. Real notes
    *  are tiny (production p99 ≈ 600 kB; the largest legitimate page ≈ 7 MB), so
    *  anything past this is a runaway — most likely a forked-note feedback loop
@@ -278,31 +230,4 @@ export const config = {
   bootstrapTtlHours: int("BOOTSTRAP_TTL_HOURS", 24),
 } as const;
 
-/**
- * Billing is enabled iff a Polar access token is configured — mirrors the
- * `googleEnabled` env-presence pattern. When disabled, self-hosters get an
- * unlimited, unmetered product (no caps, config reports `{ enabled: false }`).
- *
- * Evaluated live from the environment (not captured at import) so the switch is
- * deterministic under test toggling; production sets it once and never changes.
- */
-export function billingEnabled(): boolean {
-  const t = process.env.POLAR_ACCESS_TOKEN;
-  return t !== undefined && t !== "";
-}
-
 export type AppConfig = typeof config;
-
-// ---- Typed billing getters (Team seat billing) ----
-export type BillingModel = "vault" | "team";
-export const billingModel = (): BillingModel => config.billingModel;
-export const teamProductId = (interval: "month" | "year"): string | undefined =>
-  interval === "year" ? config.polarProductTeamYearlyId : config.polarProductTeamMonthlyId;
-export const teamPricePerSeatCents = (interval: "month" | "year"): number =>
-  interval === "year" ? config.teamPriceYearlyCents : config.teamPriceMonthlyCents;
-export const teamMinSeats = (): number => config.teamMinSeats;
-export const abuseMaxNotes = (): number => config.abuseMaxNotes;
-export const abuseMaxStorageBytes = (): number => config.abuseMaxStorageMb * 1024 * 1024;
-/** Legacy per-vault product ids, used only to classify existing subscriptions. */
-export const legacyProductIds = (): string[] =>
-  [config.polarProductMonthlyId, config.polarProductYearlyId].filter((x): x is string => !!x);

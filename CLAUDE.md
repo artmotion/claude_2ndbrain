@@ -45,6 +45,10 @@ Three pieces; this open-source repo holds the first two.
   always be changed in Account Settings → Connection. The brand name is configurable too:
   `VITE_BRAND_NAME` (desktop, `lib/brand.ts`) and `BRAND_NAME` (server env, `src/brand.ts`).
   Self-host/deploy guide: `docs/DEPLOY.md`.
+  **Billing was removed from this fork** (2026-10-13): no plans, seats, quotas or 402 limit
+  refusals anywhere; every server behaves as the old billing-disabled self-host (unlimited, the
+  Assistant and standalone-file sync always on). Migration 056 drops the billing tables; the older
+  billing migrations stay for databases that already applied them.
 - **Origin** — 2ndBrain is a personal fork of [Baalda](https://github.com/naveedharri/baalda)
   (Apache-2.0). Upstream's managed service, website, trademark policy and `ee/` directory are not
   part of this fork.
@@ -415,10 +419,10 @@ Pure TS with dependency-injected I/O so it runs under vitest in Node. `adapter.t
 The top banners above the editor share ONE notice slot (`lib/noticeSlot.ts`, hook
 `components/useNoticeSlot.ts`): each claims it and only the highest-priority claim shows, in the
 order held bulk delete > reconcile summary > open note deleted/access removed > vault made local
-only > membership ended (folder deleted) > vault folder missing > vault folder restored > Team subscription lapsed (read-only sync) > closed-app changes > not syncing > sync paused > note limit > create
-refusal > open note's file gone on disk > attachments local only. Informational notices fade after
+only > membership ended (folder deleted) > vault folder missing > vault folder restored > closed-app changes > not syncing > sync paused > create
+refusal > open note's file gone on disk. Informational notices fade after
 `NOTICE_FADE_MS` (20 s) through their own Dismiss; notices with a pending choice (sign in, locate,
-upgrade, close note, keep local) stay until answered. A faded notice loses nothing: Activity keeps
+close note, keep local) stay until answered. A faded notice loses nothing: Activity keeps
 the record. The editor's inline locked/view-only banner is not part of the slot.
 `store.ts` is a Zustand **UI view-state mirror only** (vault, tree, open note, auth/session, org members,
 sync status, locks, prefs). Editor is CodeMirror 6 + `y-codemirror.next` (`yCollab`) — the buffer *is* the
@@ -515,10 +519,6 @@ Vault Health tab removed 2026-10-04 (#289); vault-level sync state surfaces only
 badge, the reconcile banner / Activity review and file previews. `vaultSyncStatus` (vault channel) stays
 independent of the open note's `syncStatus`, which still controls editor permissions; a note-level
 refusal is not lost vault membership.
-An attachment-local-only notice is driven only by the server's explicit
-`attachment_sync_requires_pro` refusal. Do not infer it from a Free plan label:
-the vault may be Pro, and billing-disabled self-hosts may still sync attachments.
-The notice shows in file previews while notes continue to report their own sync state.
 The vault list lives in Account Settings → Vaults (Vault Settings keeps it only
 when signed out) and shows account memberships and this app profile's recent
 local folders, not a scan of the managed root. Production and staging have
@@ -575,48 +575,10 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   /api/orgs/:orgId/appearance`: any member reads, owner/admin replaces the vault-wide theme/autoColors/
   contentWidth/textSize/lineNumbers/properties object validated by `appearance/schema.ts`, then the vault
   channel fans out `{t: "appearance-changed", orgId, settings, updatedAt}` like the `org` icon frame),
-  `graph` (nodes/edges + semantic search), `sync-token`, `blobs` (attachment store), `mcp`, `billing`,
+  `graph` (nodes/edges + semantic search), `sync-token`, `blobs` (attachment store), `mcp`,
   `public-links` (`/api/notes/:docId/public-link` mint/inspect/revoke + public `GET /p/:token`
   read-only page — token is the capability; renders via the escape-first `render/note-html.ts`,
   no renderer deps).
-- `billing/` — Polar behind `provider.ts`; `store.ts` is the ONLY writer of a `subscriptions` row and
-  always persists the provider's returned state. One vault = one subscription (409 `already_subscribed`).
-  `BILLING_MODEL=vault|team` (default `vault` until the production flip) picks the model. **`team`
-  (the shipped model):** Free = 2 people per account (owner counts), 1 synced vault, MCP included,
-  no Assistant, no standalone-file sync (embeds under `attachments/` still sync), "unlimited"
-  notes/storage under hidden per-vault ceilings `ABUSE_MAX_NOTES` (100000) / `ABUSE_MAX_STORAGE_MB`
-  (10240). Team = $10/seat/month or $110/seat/year, `TEAM_MIN_SEATS` 3, owner buys N seats upfront
-  (402 `seat_limit_reached {seats, used, pending, message}` when full; pending unexpired invites
-  reserve a seat), unlimited vaults on one account, Assistant + file sync included; managed in
-  Account Settings → Plan & Billing (per-vault usage: Vault Settings → Usage), plan named "Team" in-app (was "Pro"). Existing subscribers keep
-  their price via a Polar discount on the Team seat product (ops scripts
-  `scripts/billing/move-legacy-subs.ts`, `polar-spike.ts`). Old 402 codes stay emitted for old
-  desktops (`attachment_sync_requires_pro`, `housekeeper_requires_pro`, `vault_limit_reached`,
-  `member_limit_reached` now `{limit: 2, scope: 'account'}`); new: `housekeeper_requires_team`,
-  `account_read_only`, `upgrade_in_new_app`, `transfer_retired`. **`vault` (legacy):** per-vault
-  Pro; new accounts get `FREE_MAX_VAULTS` (2) unsubscribed vaults, migration 031 keeps three for
-  older accounts, and an active or past-due Pro vault unlocks standalone-file sync for its members.
-  Billing-disabled self-hosts remain unlimited under both.
-  Deleting a vault cancels **at period end first** and aborts the delete if the provider refuses (502
-  `subscription_cancel_failed`; Better Auth's own org-delete is off via `disableOrganizationDeletion`).
-  The row then outlives the org as a **tombstone** — migration 024 dropped the cascade and added
-  `deleted_at`/`org_name`/`owner_user_id` — so a late webhook is stored, not FK-failed and retried
-  forever. Webhooks resolve by `provider_subscription_id` first, then metadata, which is what lets
-  `POST /api/billing/orgs/:orgId/transfer` (owner; un-cancels at Polar) move one; `/mine` reconciles.
-  Under `team`, `/mine` adds `accountPlan`/`accountId` per vault and transfer answers `transfer_retired`.
-- `billing/plan.ts` — the SINGLE plan resolver (`resolveAccountPlan` by org, account or user → plan,
-  limits, `lapsed`); `planEnforced()` = Cloud deployment AND billing configured, else unlimited.
-  `billing/accounts.ts` — `billing_accounts` (one per owner) + `billing_account_orgs` join, created
-  lazily (`ensureAccountForUser`/`ensureAccountForOrg`). `billing/lapse.ts` — lapse (period ended or
-  failed payment past grace, over Free limits) makes every attached vault sync read-only for
-  everyone: 402 `account_read_only`, a synthetic `billing:<orgId>` lock row with
-  `reason: 'billing_lapsed'`, sockets reconnected read-only; reads untouched, local files stay
-  editable. `billing/usage.ts` — per-vault counts for the account (people, live notes, ready blob
-  bytes, `files` rows). Account routes (`routes/billing.ts`): `GET /api/billing/account`,
-  `…/account/usage`, `…/account/seats/preview?seats=n`, `POST …/account/checkout {seats, interval,
-  successUrl}`, `PATCH …/account/seats`, `POST …/account/cancel|resume|portal`,
-  `POST /api/billing/orgs/:orgId/move {toAccountId}`; the old per-org checkout answers 409
-  `upgrade_in_new_app`.
 - `sync/hocuspocus.ts` — `onAuthenticate` verifies the per-doc JWT & sets `readOnly` for view grants;
   `onChange` appends the binary update + schedules re-index. `disconnectDoc` force-closes sockets on revoke.
 - `yjs/persistence.ts` — binary-only store: `doc_updates` append log + `doc_snapshots` (compact past
@@ -802,7 +764,7 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   dropped, never a 403. It is the desktop's HTTP pull-then-merge.
 - **One-step file upload** (`files-with-bytes`, `routes/blobs.ts`, migration 048
   `blobs.pending_register`): `POST /vaults/:id/blobs/intent` may carry `register: { docId, relPath,
-  folderId? }`; the Pro gate and a dry-run `registerFile` (adopt-by-path, `path_folder_mismatch`,
+  folderId? }`; a dry-run `registerFile` (adopt-by-path, `path_folder_mismatch`,
   create permission, frozen root, rolled back) run at intent BEFORE any row exists, with the same
   statuses/codes as `POST /api/files`. The registration waits on the pending blob row, and
   `complete` creates the `files` row in the SAME transaction that marks the blob ready, then
@@ -811,9 +773,8 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   old `POST /api/files` + intent → PUT → complete flow is unchanged. The desktop uses it for a NEW
   tree binary (no `files` id known) when the server advertises the feature (`attachments.ts
   oneStepRegister`): no `POST /api/files` / `preregisterFiles`, the id is recorded from the intent's
-  `file` (dedupe, or `adopted` = bind to that row) or complete's; a 402
-  `attachment_sync_requires_pro` registers nothing and raises the usual notice, and any other
-  registration refusal sends that file down the old path once.
+  `file` (dedupe, or `adopted` = bind to that row) or complete's, and any registration refusal
+  sends that file down the old path once.
 - `metrics/sync-metrics.ts` — in-process counters, no deps, no DB writes, reset on restart. Every 60 s,
   only when something changed, one line `[sync-metrics] {"windowS":60,"counters":{…}}` with DELTAS
   (sum across lines and instances): `seed.applied`/`appliedBytes`/`covered`/`conflict`/`refused`/
@@ -870,14 +831,9 @@ change in prod) · `BETTER_AUTH_URL` · `PORT` (3010) · `HOCUSPOCUS_PORT` (3011
 (600) · `COMPACTION_THRESHOLD` (50) · `TRASH_RETENTION_DAYS` (30) · `CORS_ORIGINS` (optional) · `OPENAI_API_KEY` (optional) ·
 `EMAIL_FROM` + `SMTP_URL` | `RESEND_API_KEY` (optional; turns on password reset, sign-up verification
 and invitation emails — `src/email/mailer.ts`; unset ⇒ none offered, like Google OAuth) · `BUG_REPORT_EMAIL` (optional; with email on, the desktop's sidebar bug icon emails reports
-there, Reply-To = reporter — `http/routes/bug-reports.ts`; unset ⇒ the icon is hidden) ·
-billing (managed/Polar only; self-hosters leave all unset ⇒ unlimited): `POLAR_ACCESS_TOKEN` +
-`POLAR_WEBHOOK_SECRET` + `POLAR_SERVER` · `BILLING_MODEL` (`vault`|`team`, default `vault`) ·
-`POLAR_PRODUCT_MONTHLY_ID`/`POLAR_PRODUCT_YEARLY_ID` (per-vault) ·
-`POLAR_PRODUCT_TEAM_MONTHLY_ID`/`POLAR_PRODUCT_TEAM_YEARLY_ID` · `TEAM_PRICE_MONTHLY_CENTS` (1000) ·
-`TEAM_PRICE_YEARLY_CENTS` (11000) · `TEAM_MIN_SEATS` (3) · `ABUSE_MAX_NOTES` (100000) ·
-`ABUSE_MAX_STORAGE_MB` (10240) · `FREE_MAX_VAULTS`/`FREE_MAX_MEMBERS`/`FREE_MAX_STORAGE_MB`
-(per-vault model only).
+there, Reply-To = reporter — `http/routes/bug-reports.ts`; unset ⇒ the icon is hidden). The
+billing variables (`POLAR_*`, `BILLING_MODEL`, `TEAM_*`, `ABUSE_MAX_*`, `FREE_MAX_*`,
+`SECONDBRAIN_DEPLOYMENT`) are gone with billing.
 
 ## Conventions & gotchas
 
@@ -913,9 +869,8 @@ billing (managed/Polar only; self-hosters leave all unset ⇒ unlimited): `POLAR
   `vault*` wire/DB names. The rename went all the way down (pre-launch, no compat window): migration 013
   renamed `shares`/`blobs.workspace_id` → `org_id` (org-id columns; `vault_id` already means the
   collection), rewrote the org-wide grant value `resource_type = 'workspace'` → `'vault'` (+ CHECK), and
-  renamed `mcp_oauth_workspace` → `mcp_oauth_vault`; the 402 tokens are `vault_limit_reached` /
-  `member_limit_reached`, the billing JSON fields `vaultsPerUser` / `membersPerVault`, and the env var
-  `FREE_MAX_VAULTS`. The word *workspace* now survives only as pnpm's `pnpm-workspace.yaml` tooling
+  renamed `mcp_oauth_workspace` → `mcp_oauth_vault` (the billing tokens it renamed are gone with
+  billing). The word *workspace* now survives only as pnpm's `pnpm-workspace.yaml` tooling
   term plus the Rust `#[serde(alias = "workspace_root")]` that keeps pre-rename desktop config files
   loadable.
 
@@ -926,26 +881,20 @@ Phases 0–3 are complete and wired end-to-end: local Obsidian-lite → local CR
 codes, semantic search, and a graph view. Deferred to Phase 4: structural WYSIWYG CRDT, richer vector
 search, AI-as-CRDT-peer, at-rest encryption, OAuth, and an iOS app.
 
-Embedded attachments under `attachments/` without a standalone `files` identity sync on Free,
-subject to storage quotas and existing blob ACLs. Bytes remain in the configured blob store,
-not in Yjs. A standalone-file Pro refusal must not stop embedded transfers. Rich note copy
+Embedded attachments under `attachments/` and standalone files both sync, subject to the
+existing blob ACLs. Bytes remain in the configured blob store, not in Yjs. Rich note copy
 embeds attachment bytes in sanitized clipboard HTML; paste imports them into the destination
 vault. Plain-text clipboard fallback remains Markdown.
 
-Existing embedded links and blob IDs are retained across the Free attachment-policy
-update; no note rewrite or blob migration is required. Missing embedded paths are
-restored even if identical bytes already exist at another local path, without
-overwriting occupied paths. Legacy whole-list Pro refusals can be re-probed on
-a sync pass after a one-minute cooldown, allowing a running updated desktop to
-recover when its server is upgraded.
+Missing embedded paths are restored even if identical bytes already exist at another local
+path, without overwriting occupied paths.
 
 ### 2ndBrain Assistant engine
 
 AI’s 2ndBrain Assistant provides user-reviewed agent repairs. `http/routes/housekeeper.ts` hosts the optional
 `app/apps/server/housekeeper/index.mjs` module (override with `HOUSEKEEPER_MODULE`) without a
-static build dependency. Every request checks vault membership and a non-deleted
-`pro` subscription in `active`/`past_due` on Cloud. Self-hosters with
-`SECONDBRAIN_DEPLOYMENT=self-hosted` have access. The Apache-2.0 module uses the server-side
+static build dependency. Every request checks vault membership; there is no plan
+gate. The Apache-2.0 module uses the server-side
 OpenRouter SDK through swappable Decisions/chat adapters. Personal provider keys live in the desktop OS keychain and are supplied per inference request; the server does not persist them. Candidate reads use per-note permissions and apply/undo use
 `DocWriter.editContent` with revision/span guards under its lock. Preview tokens
 are scoped to user/vault, expire, and live in bounded process memory. No sync wire
@@ -956,15 +905,6 @@ format or bridge timing changes. Setup, limits and isolated tests:
 Finding cards are data-driven; models choose allowlisted capabilities, while
 existing permission-checked tools own changes. Link and filename changes require
 concrete previews. Never interpret generated text as executable tool authority.
-
-On Cloud servers with billing on, Free vaults can register up to `ABUSE_MAX_NOTES` (100000) live
-notes under `BILLING_MODEL=team` (a hidden abuse ceiling; Free is marketed unlimited) and 20,000
-under the legacy `vault` model. New note
-registration and MCP creation serialize quota checks with the same per-vault
-session advisory lock (`billing/note-quota.ts`). Existing notes remain adoptable
-at/above the cap; no data is deleted. `note_limit_reached` prompts an upgrade but
-does not stop reconciliation of existing notes. Self-hosters and
-active paid subscriptions bypass this note cap.
 
 Linked Claude/ChatGPT dashboard tabs use `dashboard_remote.rs` native child webviews
 (Tauri `unstable` multi-webview API). These HTTPS viewers have no remote IPC

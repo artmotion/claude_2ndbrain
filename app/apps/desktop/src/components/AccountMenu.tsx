@@ -25,7 +25,7 @@ import {
 import { isUpdateBusy, updateCheckToast, updateRowHint } from "../lib/updateMenuRow";
 import { toast } from "../lib/toast";
 
-/* The settings surface is a whole second app (nine tabs, billing, MCP tokens,
+/* The settings surface is a whole second app (nine tabs, MCP tokens,
    access) and nothing in it is on the first screen, so all three dialogs load
    on demand. `null` is the right fallback for a modal: the popover stays put
    and the sheet arrives a beat later. */

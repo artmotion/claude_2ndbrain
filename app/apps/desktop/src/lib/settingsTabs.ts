@@ -16,7 +16,6 @@ export type SettingsTab =
   // signed-out app has no account page to show its local folders on.
   | "vaults"
   | "members"
-  | "billing"
   | "mcp"
   | "versioning"
   | "import-export"
@@ -30,6 +29,5 @@ export type AccountSettingsTab =
   | "appearance"
   | "notifications"
   | "connection"
-  | "plan"
   | "vaults"
   | "about";

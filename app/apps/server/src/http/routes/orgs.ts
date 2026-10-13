@@ -3,22 +3,11 @@ import { Hono } from "hono";
 import { pool } from "../../db/pool.js";
 import { orgRole } from "../../permissions/lookup.js";
 import { getSession } from "../session.js";
-import { canAddMember } from "../../billing/entitlements.js";
-import { checkJoinSeat, seatRefusalBody, teamModel } from "../../billing/plan.js";
-import {
-  applySubscriptionState,
-  findByOrg,
-  isActiveStatus,
-} from "../../billing/store.js";
 import { announceMemberJoined, announceMemberRemoved } from "../../sync/member-events.js";
 import { announceInvitationGone } from "../../sync/user-events.js";
 import { applyInvitationAccess } from "../../members/invitation-access.js";
-import { billingEnabled } from "../../config.js";
 import { dispatchMail, emailEnabled } from "../../email/mailer.js";
 import { memberLeftEmail, youLeftVaultEmail } from "../../email/templates.js";
-import type { BillingProvider } from "../../billing/provider.js";
-import { onMembershipTrimmed } from "../../billing/lapse.js";
-import { accountIdForOrg } from "../../billing/accounts.js";
 
 /**
  * Vault (org) routes (session-authenticated).
@@ -51,14 +40,6 @@ import { accountIdForOrg } from "../../billing/accounts.js";
  *    the binary CRDT stores and derived caches (which have no FK) are purged by
  *    hand first. Non-owners cannot delete — they just remove it from their
  *    device client-side.
- *
- *    A paid vault stops billing FIRST, and the delete is abandoned if the
- *    provider won't confirm it (502 `subscription_cancel_failed`) — a provider
- *    outage used to delete the vault anyway and leave Polar charging for
- *    something nobody could see (#109/#111). The `subscriptions` row then
- *    SURVIVES the delete as a tombstone (`deleted_at` set, vault name + owner
- *    snapshotted) so the owner can still cancel or transfer it from Billing,
- *    and so a webhook arriving afterwards has somewhere to land.
  */
 export interface OrgDeps {
   /** Force-close live sync sockets for a doc (so a purge isn't re-populated). */
@@ -77,17 +58,6 @@ export interface OrgDeps {
    * a non-member with no shares — and drop every doc immediately.
    */
   onAclChanged: (vaultId: string) => void;
-  /**
-   * Billing provider, used to STOP a paid vault's subscription before the vault
-   * is deleted. NOT best-effort any more: if the provider refuses, the delete
-   * refuses too (#109/#111). Deleting a vault whose subscription is still live
-   * leaves someone paying for something they can no longer see, and — with the
-   * row gone — no way for anyone to notice or retry.
-   *
-   * Absent (self-host / billing off) ⇒ there is nothing to cancel, and deletion
-   * relies on the FK cascade alone.
-   */
-  billingProvider?: BillingProvider;
 }
 
 /** Most org ids one `POST /api/orgs/membership-check` answers. */
@@ -223,16 +193,6 @@ export interface VaultContentCounts {
   checkpoints: number;
 }
 
-/**
- * The subscription facts a client needs to explain what happens to the money.
- * Dates are ISO strings because this crosses the wire.
- */
-export interface SubscriptionEcho {
-  status: string;
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
-}
-
 /** `count(*)` as a number — pg returns bigint as a string. */
 async function countOf(sql: string, params: unknown[]): Promise<number> {
   const { rows } = await pool.query<{ c: string }>(sql, params);
@@ -274,32 +234,12 @@ async function countVaultContents(
   return { notes, files, folders, attachmentBytes, members, publicLinks, mcpTokens, checkpoints };
 }
 
-/** A stored subscription as the wire sees it; a tombstone reads as "none". */
-function echoSubscriptionRow(
-  row: { status: string; current_period_end: Date | null; cancel_at_period_end: boolean; deleted_at: Date | null } | null,
-): SubscriptionEcho | null {
-  if (!row || row.deleted_at) return null;
-  return {
-    status: row.status,
-    currentPeriodEnd: row.current_period_end ? row.current_period_end.toISOString() : null,
-    cancelAtPeriodEnd: row.cancel_at_period_end,
-  };
+export interface VaultTeardown {
+  orgName: string | null;
+  vaultIds: string[];
+  docIds: string[];
+  counts: VaultContentCounts;
 }
-
-export type VaultTeardown =
-  | {
-      ok: true;
-      orgName: string | null;
-      vaultIds: string[];
-      docIds: string[];
-      counts: VaultContentCounts;
-      subscription: SubscriptionEcho | null;
-    }
-  | { ok: false; error: "subscription_cancel_failed"; message: string; detail: string };
-
-/** The words a person sees when the provider will not stop the subscription. */
-export const SUBSCRIPTION_CANCEL_FAILED_MESSAGE =
-  "We couldn't stop this vault's subscription. Nothing was deleted. Try again, or cancel it from Billing first.";
 
 /**
  * Remove a vault from the server, completely. THE one teardown.
@@ -311,14 +251,12 @@ export const SUBSCRIPTION_CANCEL_FAILED_MESSAGE =
  * time a table is added.
  *
  * Order is load-bearing:
- *   1. money first — a provider that won't cancel aborts the whole thing (502),
- *      before anything is destroyed (#109/#111);
- *   2. snapshot vault/doc ids and the counts BEFORE the cascade removes the
+ *   1. snapshot vault/doc ids and the counts BEFORE the cascade removes the
  *      rows we'd read them from;
- *   3. kill live sockets so `onChange` can't re-append rows we're about to purge;
- *   4. one transaction for the FK-less stores, the session pointers, the
- *      subscription tombstone and the `organization` row;
- *   5. `onAclChanged` per collection AFTER the commit — the vault channel
+ *   2. kill live sockets so `onChange` can't re-append rows we're about to purge;
+ *   3. one transaction for the FK-less stores, the session pointers and the
+ *      `organization` row;
+ *   4. `onAclChanged` per collection AFTER the commit — the vault channel
  *      answers by re-resolving the readable set and must see the final state.
  *
  * The caller does the authz. This function assumes it has already happened.
@@ -326,73 +264,12 @@ export const SUBSCRIPTION_CANCEL_FAILED_MESSAGE =
 async function deleteVaultEverywhere(
   deps: OrgDeps,
   orgId: string,
-  actorUserId: string,
 ): Promise<VaultTeardown> {
   const { rows: orgNameRows } = await pool.query<{ name: string }>(
     "SELECT name FROM organization WHERE id = $1",
     [orgId],
   );
   const orgName = orgNameRows[0]?.name ?? null;
-
-  // Stop the money BEFORE anything is destroyed. `period_end` keeps the paid
-  // period the owner already bought; if the provider refuses we abandon the
-  // whole teardown with 502 rather than leave a live subscription that nothing
-  // records (#109/#111). This deliberately runs ahead of the socket teardown
-  // and the purge, so a 502 here costs nothing.
-  let subscription: SubscriptionEcho | null = null;
-  // Team model: the subscription belongs to the ACCOUNT, not this vault. It
-  // must survive the delete (never cancelled, never tombstoned); the account
-  // keeps its plan and its seats recompute from the vaults left.
-  const teamAccountId = teamModel() ? await accountIdForOrg(pool, orgId) : null;
-  if (billingEnabled() && deps.billingProvider) {
-    const row = await findByOrg(pool, orgId);
-    const subId = row?.provider_subscription_id;
-    const accountOwned = teamModel() && !!row?.billing_account_id;
-    if (row && subId && isActiveStatus(row.status) && !accountOwned) {
-      // Always ask, even when our row already says "ending": the flag is
-      // idempotent at the provider, and our copy can be stale — an owner who
-      // un-cancelled in Polar's portal while that webhook went missing would
-      // otherwise have the vault deleted and the subscription still renewing.
-      // The provider's answer is what we record and report.
-      try {
-        const snap = await deps.billingProvider.cancelSubscription(subId, "period_end");
-        // The provider's answer IS the state — persist it through the same
-        // upsert (and the same ordering guard) the webhook uses, so a
-        // webhook describing this very change can't fight it.
-        await applySubscriptionState(pool, {
-          organizationId: orgId,
-          providerCustomerId: snap.providerCustomerId,
-          providerSubscriptionId: snap.providerSubscriptionId,
-          plan: "pro",
-          status: snap.status,
-          currentPeriodEnd: snap.currentPeriodEnd,
-          cancelAtPeriodEnd: snap.cancelAtPeriodEnd,
-          eventTs: snap.modifiedAt,
-          interval: snap.interval,
-          amount: snap.amount,
-          currency: snap.currency,
-        });
-        subscription = {
-          status: snap.status,
-          cancelAtPeriodEnd: snap.cancelAtPeriodEnd,
-          currentPeriodEnd: snap.currentPeriodEnd ? snap.currentPeriodEnd.toISOString() : null,
-        };
-      } catch (err) {
-        console.error(
-          `vault-teardown: refusing to remove vault ${orgId} — the provider would not cancel subscription ${subId}:`,
-          (err as Error).message,
-        );
-        return {
-          ok: false,
-          error: "subscription_cancel_failed",
-          // Shown to the person as is (#300); the provider's reason stays in
-          // `detail` and the log line above.
-          message: SUBSCRIPTION_CANCEL_FAILED_MESSAGE,
-          detail: (err as Error).message || "provider cancel failed",
-        };
-      }
-    }
-  }
 
   // `vaults` here = the org's note-collection rows (storage children), not the
   // user-facing vault (the organization) being removed.
@@ -440,16 +317,6 @@ async function deleteVaultEverywhere(
       `UPDATE session SET "activeOrganizationId" = NULL WHERE "activeOrganizationId" = $1`,
       [orgId],
     );
-    // The subscription row is NOT cascaded away any more (migration 024 drops
-    // the FK). Turn whatever is there into a tombstone — including a canceled
-    // row, where it is harmless — so a webhook arriving after this has
-    // somewhere to land and the owner can still see what they were paying for.
-    await client.query(
-      `UPDATE subscriptions
-          SET deleted_at = now(), org_name = $2, owner_user_id = $3, updated_at = now()
-        WHERE organization_id = $1 AND NOT ($4::boolean AND billing_account_id IS NOT NULL)`,
-      [orgId, orgName, actorUserId, teamModel()],
-    );
     // Cascades: member, invitation, vaults→(folders, notes, files), shares,
     // org_join_codes, mcp_tokens, public_links.
     await client.query("DELETE FROM organization WHERE id = $1", [orgId]);
@@ -466,10 +333,8 @@ async function deleteVaultEverywhere(
   // vault-channel sockets survive `disconnectDoc` and would otherwise keep
   // streaming content from a deleted vault until their tokens expired.
   for (const vaultId of vaultIds) deps.onAclChanged(vaultId);
-  // Detaching a vault can bring the account back under Free limits.
-  if (teamAccountId) await onMembershipTrimmed(pool, orgId, teamAccountId);
 
-  return { ok: true, orgName, vaultIds, docIds, counts, subscription };
+  return { orgName, vaultIds, docIds, counts };
 }
 
 export function createOrgRoutes(deps: OrgDeps): Hono {
@@ -546,9 +411,8 @@ export function createOrgRoutes(deps: OrgDeps): Hono {
     // place. If this vault already holds a pending invitation for the joiner's
     // address, the code is just the door they happened to walk through: they
     // get the ROLE the admin chose for them (an invited admin who joins by code
-    // is an admin), the invitation is marked accepted so it stops showing as
-    // "pending" in Members and stops holding a seat, and the seat cap is not
-    // re-checked — their seat was already counted when the invitation was made.
+    // is an admin), and the invitation is marked accepted so it stops showing
+    // as "pending" in Members.
     const invited = await pool.query<{ id: string; role: string | null; live: boolean }>(
       `SELECT id, role, ("expiresAt" > now()) AS live
          FROM invitation
@@ -558,21 +422,6 @@ export function createOrgRoutes(deps: OrgDeps): Hono {
     );
     const liveInvite = invited.rows.find((r) => r.live);
     const role = liveInvite?.role === "admin" ? "admin" : "member";
-
-    if (teamModel()) {
-      // Team model: redemption is a HARD gate even with a live invitation
-      // (members + 1 must fit; someone already on the account takes no seat).
-      const refused = await checkJoinSeat(pool, organizationId, { userId: session.userId });
-      if (refused) return c.json(seatRefusalBody(refused), 402);
-    } else if (!liveInvite) {
-      // Free-tier seat cap. This path bypasses Better Auth entirely, so the same
-      // limit the invite hook enforces must be checked here before the INSERT.
-      // No-op when billing is off (canAddMember returns allowed).
-      const seat = await canAddMember(organizationId);
-      if (!seat.allowed) {
-        return c.json({ error: "member_limit_reached", limit: seat.limit }, 402);
-      }
-    }
 
     const client = await pool.connect();
     try {
@@ -636,18 +485,12 @@ export function createOrgRoutes(deps: OrgDeps): Hono {
       return c.json({ error: "Only the vault owner can delete it" }, 403);
     }
 
-    // Read the account BEFORE the teardown: once the org is gone it no longer
-    // resolves, and the recheck needs it to lift a lapse.
-    const accountId = await accountIdForOrg(pool, orgId).catch(() => null);
-    const out = await deleteVaultEverywhere(deps, orgId, session.userId);
-    if (!out.ok) return c.json({ error: out.error, message: out.message, detail: out.detail }, 502);
-    await onMembershipTrimmed(pool, orgId, accountId);
+    const out = await deleteVaultEverywhere(deps, orgId);
 
     return c.json({
       deleted: true,
       vaults: out.vaultIds.length,
       docs: out.docIds.length,
-      subscription: out.subscription,
     });
   });
 
@@ -681,9 +524,8 @@ export function createOrgRoutes(deps: OrgDeps): Hono {
       [orgId],
     );
     const counts = await countVaultContents(orgId, vaultRows.map((r) => r.id));
-    const subscription = echoSubscriptionRow(await findByOrg(pool, orgId));
 
-    return c.json({ orgName, ...counts, subscription });
+    return c.json({ orgName, ...counts });
   });
 
   /**
@@ -720,19 +562,13 @@ export function createOrgRoutes(deps: OrgDeps): Hono {
       return c.json({ error: "name_mismatch" }, 409);
     }
 
-    // Read the account BEFORE the teardown: once the org is gone it no longer
-    // resolves, and the recheck needs it to lift a lapse.
-    const accountId = await accountIdForOrg(pool, orgId).catch(() => null);
-    const out = await deleteVaultEverywhere(deps, orgId, session.userId);
-    if (!out.ok) return c.json({ error: out.error, message: out.message, detail: out.detail }, 502);
-    await onMembershipTrimmed(pool, orgId, accountId);
+    const out = await deleteVaultEverywhere(deps, orgId);
 
     return c.json({
       unsynced: true,
       notes: out.counts.notes,
       files: out.counts.files,
       members: out.counts.members,
-      subscription: out.subscription,
     });
   });
 
@@ -847,7 +683,6 @@ export function createOrgRoutes(deps: OrgDeps): Hono {
     }
 
     await revokeMembership(deps, orgId, targetUserId, "removed");
-    await onMembershipTrimmed(pool, orgId);
     return c.json({ removed: true });
   });
 
@@ -896,7 +731,6 @@ export function createOrgRoutes(deps: OrgDeps): Hono {
     const orgName = people[0]?.org_name ?? "your vault";
 
     await revokeMembership(deps, orgId, session.userId, "left");
-    await onMembershipTrimmed(pool, orgId);
 
     // Fire-and-forget, after the commit: a mail failure must never undo or
     // block a leave, and nothing here is a link the reader has to follow.

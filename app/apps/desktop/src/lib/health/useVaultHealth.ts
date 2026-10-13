@@ -46,8 +46,6 @@ import type {
 } from "./types";
 
 export interface UseVaultHealthOptions {
-  /** Open the billing/upgrade surface. Absent ⇒ the `upgrade` remedy no-ops. */
-  onOpenUpgrade?: () => void;
   /** Put the sign-in card up. Absent ⇒ the `sign-in` remedy no-ops. */
   onRequestSignIn?: () => void;
 }
@@ -63,7 +61,7 @@ export function localAttachmentPresence(
 }
 
 /** Empty failure set — what the sync layer reports when it isn't running. */
-const NO_FAILURES: HealthFailures = { registry: [], content: [], limitCode: null };
+const NO_FAILURES: HealthFailures = { registry: [], content: [] };
 
 export function useVaultHealth(options: UseVaultHealthOptions = {}): VaultHealthSnapshot {
   const vault = useStore((s) => s.vault);
@@ -510,10 +508,6 @@ export function useVaultHealth(options: UseVaultHealthOptions = {}): VaultHealth
         const { failed } = await deleteVaultPaths([path]);
         if (failed.length > 0) throw new Error(failed[0].reason);
         refresh();
-      },
-
-      openUpgrade() {
-        optionsRef.current.onOpenUpgrade?.();
       },
 
       requestSignIn() {

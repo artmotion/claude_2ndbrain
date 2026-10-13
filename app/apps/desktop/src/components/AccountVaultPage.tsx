@@ -4,12 +4,10 @@
    actions (the card's ⋯ menu, the two-click delete, the missing-folder
    recovery), so nothing here re-implements a vault action. */
 import type { ReactNode } from "react";
-import type { BillingUsageVault } from "../lib/api";
 import {
   orderPageActions,
   VAULT_SETTINGS_UNAVAILABLE_HINT,
   type VaultPageDetail,
-  vaultPageTiles,
 } from "../lib/accountVaultPage";
 import { AsyncButton } from "./AsyncButton";
 import type { RowAction } from "./RowActionsMenu";
@@ -20,11 +18,7 @@ export function AccountVaultPage({
   name,
   slug,
   isCurrent,
-  lapsed,
   busy,
-  showStats,
-  usage,
-  usageLoading,
   details,
   actions,
   folderMissing,
@@ -37,12 +31,7 @@ export function AccountVaultPage({
   name: string;
   slug: string | null;
   isCurrent: boolean;
-  lapsed: boolean;
   busy: boolean;
-  /** False when the server does not report per-vault usage (billing off). */
-  showStats: boolean;
-  usage: BillingUsageVault | null;
-  usageLoading: boolean;
   details: VaultPageDetail[];
   /** The card's ⋯ menu actions. */
   actions: RowAction[];
@@ -53,7 +42,6 @@ export function AccountVaultPage({
   onOpenSettings: () => Promise<void>;
   onBack: () => void;
 }) {
-  const tiles = vaultPageTiles(usage);
   const ordered = orderPageActions(actions);
   const switchChip = (
     <AsyncButton className="vault-switch-chip" disabled={busy} onClick={onSwitch}>
@@ -72,32 +60,9 @@ export function AccountVaultPage({
           {slug && <span className="muted">{slug}</span>}
         </span>
         <span className="account-vault-page-pills">
-          {lapsed && <span className="billing-status canceled">Read-only</span>}
           {isCurrent ? (folderMissing ? null : <span className="member-role">Current</span>) : switchChip}
         </span>
       </header>
-
-      {showStats && (
-        <>
-          <div className="subhead">Stats</div>
-          <div className="vault-usage-tiles">
-            {tiles.map((t) => (
-              <div key={t.key} className="vault-usage-tile">
-                <span className="vault-usage-caption">{t.caption}</span>
-                {usageLoading ? (
-                  <span className="skel-line account-vault-page-skel" aria-hidden="true" />
-                ) : (
-                  <span className="vault-usage-value">{t.value ?? "—"}</span>
-                )}
-                <span className="vault-usage-sub" title={t.sub}>{t.sub}</span>
-              </div>
-            ))}
-          </div>
-          {!usageLoading && !usage && (
-            <p className="muted account-vault-page-note">Usage is shown for vaults on your account.</p>
-          )}
-        </>
-      )}
 
       <div className="subhead">Details</div>
       <dl className="member-profile-about">

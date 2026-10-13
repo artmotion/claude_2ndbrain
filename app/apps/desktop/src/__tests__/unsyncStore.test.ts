@@ -3,9 +3,8 @@
 // Two rules carry the whole feature, and both are easy to break by reordering
 // four lines:
 //
-//   1. **Server first.** A refusal — 403 `owner_only`, a 409 `name_mismatch`, the
-//      502 a billing provider produces when it won't cancel, or simply being
-//      offline — must leave this device EXACTLY as it was. The vault still
+//   1. **Server first.** A refusal — 403 `owner_only`, a 409 `name_mismatch`, or
+//      simply being offline — must leave this device EXACTLY as it was. The vault still
 //      exists; pretending otherwise strands a live vault as a local folder.
 //   2. **The stamp must be cleared, and nothing on disk may be touched.** Leave
 //      `.context/config.json` naming the dead org and `planTurnOnSync` answers
@@ -23,14 +22,11 @@ const api = vi.hoisted(() => ({
   listMembers: vi.fn(async () => [] as unknown[]),
   listInvitations: vi.fn(async () => [] as unknown[]),
   listUserInvitations: vi.fn(async () => [] as unknown[]),
-  getBillingConfig: vi.fn(async () => ({ enabled: false })),
-  getOrgBilling: vi.fn(async () => null),
   unsyncVault: vi.fn(async () => ({
     unsynced: true,
     notes: 12,
     files: 3,
     members: 2,
-    subscription: null,
   })),
   getOrgStatus: vi.fn(async () => ({ kind: "vault-not-found" }) as unknown),
 }));
@@ -147,7 +143,6 @@ beforeEach(() => {
     notes: 12,
     files: 3,
     members: 2,
-    subscription: null,
   });
   useStore.setState({
     vault: vault(),
@@ -167,13 +162,10 @@ beforeEach(() => {
 
 describe("unsyncVault — the server is the gate", () => {
   it("changes NOTHING on this device when the server refuses", async () => {
-    // 502 `subscription_cancel_failed` is the real one: the provider wouldn't
-    // cancel, so the server deleted nothing at all.
-    api.unsyncVault.mockRejectedValue(new Error("subscription_cancel_failed"));
+    // 409 `name_mismatch`: the server deleted nothing at all.
+    api.unsyncVault.mockRejectedValue(new Error("name_mismatch"));
 
-    await expect(useStore.getState().unsyncVault(ORG, "A")).rejects.toThrow(
-      "subscription_cancel_failed",
-    );
+    await expect(useStore.getState().unsyncVault(ORG, "A")).rejects.toThrow("name_mismatch");
 
     expect(ipcMock.setVaultConfig).not.toHaveBeenCalled();
     expect(sync.disable).not.toHaveBeenCalled();
@@ -242,7 +234,6 @@ describe("unsyncVault — the local teardown", () => {
     expect(s.openFolderIsSynced).toBe(false);
     expect(s.syncEnabled).toBe(false);
     expect(s.members).toEqual([]);
-    expect(s.orgBilling).toBeNull();
   });
 
   it("never touches a single file on disk", async () => {

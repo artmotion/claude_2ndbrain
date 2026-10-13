@@ -40,9 +40,6 @@ import { createRepairRoutes } from "./routes/repair.js";
 import { createVersionRoutes } from "./routes/versions.js";
 import { createTrashRoutes } from "./routes/trash.js";
 import { createShrinkBrakeRoutes } from "./routes/shrink-brake.js";
-import { createBillingRoutes } from "./routes/billing.js";
-import { PolarBillingProvider } from "../billing/polar.js";
-import type { BillingProvider } from "../billing/provider.js";
 import type { DocWriter } from "../mcp/doc-writer.js";
 
 
@@ -72,8 +69,6 @@ export interface AppDeps extends ShareDeps {
    * write. Backed by `sync/hocuspocus.ts` `evictDoc`.
    */
   evictDoc: (vaultId: string, docId: string) => Promise<void> | void;
-  /** Payment provider. Defaults to Polar; tests inject a fake. */
-  billingProvider?: BillingProvider;
   /**
    * Structure changed (folder/note create/rename/move/delete) → broadcast.
    * `originId` identifies the client that made the change (x-secondbrain-origin), so
@@ -383,7 +378,6 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/api", createRepairRoutes({ evictDoc: deps.evictDoc }));
   app.route("/api", createShareRoutes(deps));
   app.route("/api", publicLinkApiRoutes);
-  const billingProvider = deps.billingProvider ?? new PolarBillingProvider();
   app.route(
     "/api",
     createOrgRoutes({
@@ -391,10 +385,8 @@ export function createApp(deps: AppDeps): Hono {
       // Was simply never plumbed here, which is why removing a member left their
       // vault-channel socket streaming content for up to the token TTL.
       onAclChanged: deps.onAclChanged,
-      billingProvider,
     }),
   );
-  app.route("/api", createBillingRoutes({ provider: billingProvider }));
   app.route("/api", graphRoutes);
   app.route("/api", createHousekeeperRoutes(deps.docWriter));
   app.route(

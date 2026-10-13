@@ -13,16 +13,13 @@ const api = vi.hoisted(() => ({
   listMembers: vi.fn(async () => [] as unknown[]),
   listInvitations: vi.fn(async () => [] as unknown[]),
   listUserInvitations: vi.fn(async () => [] as unknown[]),
-  getBillingConfig: vi.fn(async () => ({ enabled: false })),
-  getOrgBilling: vi.fn(async () => null),
   unsyncVault: vi.fn(async () => ({
     unsynced: true,
     notes: 12,
     files: 3,
     members: 2,
-    subscription: null,
   })),
-  deleteRemoteVault: vi.fn(async () => ({ deleted: true, vaults: 1, subscription: null }) as unknown),
+  deleteRemoteVault: vi.fn(async () => ({ deleted: true, vaults: 1 }) as unknown),
   getOrgStatus: vi.fn(async () => ({ kind: "vault-not-found" }) as unknown),
 }));
 

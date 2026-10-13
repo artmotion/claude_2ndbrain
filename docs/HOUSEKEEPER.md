@@ -29,10 +29,10 @@ permissions, storage or recovery copies. The service validates choices against
 each finding's capability list. Unsupported or uncertain action choices become
 inspection. Models cannot execute arbitrary commands or supply arbitrary edits.
 
-The client rechecks Pro before suggested local repairs, verifies the current
+The client rechecks access before suggested local repairs, verifies the current
 finding, invokes existing Health actions and refreshes measurements. Existing
 manual tools retain their permission checks and destructive confirmation flows.
-When AI is unavailable, measured local findings and manual tools remain Free.
+When AI is unavailable, measured local findings and manual tools remain available.
 Basic Health retains its sync overview and links to individual findings here.
 
 ## Personal OpenRouter key
@@ -59,7 +59,7 @@ comments, embeds and heading links are excluded. Four links are checked per scan
 with pagination. No confident candidate is an explicit no-fix result.
 
 Previews are opaque, single-use, scoped to user/vault and expire after 15 minutes.
-Apply rechecks Pro, note permissions, revisions, paths and link resolution before
+Apply rechecks membership, note permissions, revisions, paths and link resolution before
 a minimal edit through `DocWriter.editContent`. Undo uses an inverse edit guarded
 by the post-edit revision. Later human edits are never overwritten. Existing Yjs
 sync and Rust persistence own the resulting write.
@@ -67,22 +67,12 @@ sync and Rust persistence own the resulting write.
 ## Availability and local preview
 
 The engine lives under `app/apps/server/housekeeper/` under Apache-2.0 and ships
-with the standard server. Every request requires vault membership. Cloud
-instances also require a non-deleted Pro subscription in `active` or `past_due`
-(under `BILLING_MODEL=team`, since 2026-10-07: the owner's Team plan).
-Under `BILLING_MODEL=team` the requirement is a Team account in `active` or
-`past_due` instead (402 `housekeeper_requires_team`; old desktops still receive
-`housekeeper_requires_pro`).
-Self-hosters have access without Pro. Users supply their own
+with the standard server. Every request requires vault membership; there is no
+plan gate (billing was removed from this fork). Users supply their own
 OpenRouter key. Local-only vaults still need a registered vault for server AI.
 
-Explicit local testing can use `HOUSEKEEPER_LOCAL_PREVIEW=true`, but only with
-`NODE_ENV=development` and a loopback `DATABASE_URL`. Production ignores it.
-Remove the flag to restore the local Pro gate. Membership, personal-key and note
-permissions still apply during preview.
-
 The Apache-2.0 engine ships in the standard server package and Docker image at
-`housekeeper/`. `HOUSEKEEPER_MODULE` can override the module location. Self-hosters can use it without Pro; Cloud instances require Pro (Team under `BILLING_MODEL=team`).
+`housekeeper/`. `HOUSEKEEPER_MODULE` can override the module location.
 Limits: 2,000 readable notes, 100,000 characters per source/candidate, six inference
 runs per user/vault/minute and one concurrent operation per user/vault. Previews
 and limits are process-local; deployments need a single process or sticky routing.
@@ -135,11 +125,3 @@ access or send messages. Oversized-file backups preserve the only copy but do no
 split/compress content or remove the sync size limit. Deep folder restructuring,
 arbitrary YAML rewrites and content deduplication are not supported repairs.
 
-## Deployment policy
-
-Set `SECONDBRAIN_DEPLOYMENT=self-hosted` for self-hosted installations (included in
-`.env.example`). The Assistant remains available whether billing is absent, configured
-at installation, or added later. Operator billing configuration is independent.
-`SECONDBRAIN_DEPLOYMENT=cloud` requires Pro for AI and limits Free vaults to 20,000 synced
-notes (under `BILLING_MODEL=team`: Team for AI, and the `ABUSE_MAX_NOTES` ceiling). Omission defaults to `cloud` so existing Cloud deployments remain guarded,
-even if payment credentials are missing. Self-hosters bypass this Cloud note cap.

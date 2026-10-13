@@ -286,20 +286,6 @@ describe("notes with state", () => {
     }
   });
 
-  it("quota refusal (note_limit_reached) writes nothing", async () => {
-    vi.stubEnv("SECONDBRAIN_DEPLOYMENT", "cloud");
-    await pool.query(
-      `INSERT INTO notes (id, vault_id, rel_path, doc_id, created_by)
-       SELECT 'q-' || n, $1, 'note-' || n || '.md', 'q-' || n, $2 FROM generate_series(1,20000) n`,
-      [vault, owner.userId],
-    );
-    const docId = randomUUID();
-    const { body } = await batch(owner, [{ relPath: "over.md", docId, state: stateFor("over") }]);
-    expect(body.results[0]).toMatchObject({ status: "error", code: "note_limit_reached", seeded: false });
-    expect(await noteRow(vault, "over.md")).toBeNull();
-    expect(await updateRows(docId)).toBe(0);
-  });
-
   it("old-shape items answer exactly as before, with no new fields", async () => {
     const { body } = await batch(owner, [{ relPath: "plain.md" }]);
     expect(Object.keys(body.results[0]).sort()).toEqual(

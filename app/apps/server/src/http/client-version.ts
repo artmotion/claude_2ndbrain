@@ -32,7 +32,7 @@ import type { MiddlewareHandler } from "hono";
  * A browser WebSocket cannot carry custom headers, which is the other reason
  * the mint is the layer: a token is only issued to a request that passed here.
  *
- * Policy, both read LIVE from the environment (like `billingEnabled`) so a test
+ * Policy, both read LIVE from the environment so a test
  * can flip it and a self-host sees exactly what it configured:
  *  - `MIN_CLIENT_VERSION` — `x.y.z`; default {@link DEFAULT_MIN_CLIENT_VERSION}.
  *    `0` or `off` disables the version floor.

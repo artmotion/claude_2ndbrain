@@ -57,8 +57,6 @@ export function HealthView({
   snapshot,
   notes = [],
   vaultPath = null,
-  standaloneFileSyncBlocked = false,
-  showAttachmentUpgrade = false,
   onGoToGeneral,
   onClose,
 }: {
@@ -77,10 +75,6 @@ export function HealthView({
   notes?: NoteTitle[];
   /** Keys the per-vault ignore list; null ⇒ nothing is remembered. */
   vaultPath?: string | null;
-  /** The Remote Vault explicitly refused standalone binary sync at the plan boundary. */
-  standaloneFileSyncBlocked?: boolean;
-  /** Whether this server exposes a checkout path for that plan boundary. */
-  showAttachmentUpgrade?: boolean;
   onGoToGeneral?: () => void;
   onClose?: () => void;
 }) {
@@ -198,7 +192,7 @@ export function HealthView({
     return <div className="health-tab assistant-finding-tools">
       {check ? <HealthChecks checks={checks} loading={loading} handlers={handlers} onlyIds={[findingId]} focus={{ id: check.id, n: 1 }} /> :
         findingId === "vault-storage" ? stats && <HealthLargest stats={stats} handlers={handlers} /> :
-        ["remote-files", "local-files"].includes(findingId) ? <InventoryComparison inventory={snapshot.inventory} report={report} handlers={handlers} standaloneFileSyncBlocked={standaloneFileSyncBlocked} showAttachmentUpgrade={showAttachmentUpgrade} localBytes={localFilesBytes(stats)} serverStorage={snapshot.serverStorage ?? null} /> :
+        ["remote-files", "local-files"].includes(findingId) ? <InventoryComparison inventory={snapshot.inventory} report={report} handlers={handlers} localBytes={localFilesBytes(stats)} serverStorage={snapshot.serverStorage ?? null} /> :
         issues.length ? <HealthIssues issues={issues} handlers={handlers} syncEnabled={report.counts != null} focusKey={issues.length === 1 ? issues[0].key : undefined} /> :
         <><p>{report.detail}</p><HealthTimeline log={log} now={now} onInspect={path => setInspectRequest({ path, n: Date.now() })} /></>}
       {inspectRequest && <HealthInspector notes={notes} handlers={handlers} request={inspectRequest} onShowIssue={setFocusIssue} />}
@@ -224,8 +218,6 @@ export function HealthView({
         inventory={snapshot.inventory}
         report={report}
         handlers={handlers}
-        standaloneFileSyncBlocked={standaloneFileSyncBlocked}
-        showAttachmentUpgrade={showAttachmentUpgrade}
         localBytes={localFilesBytes(stats)}
         serverStorage={snapshot.serverStorage ?? null}
         part="cards"
@@ -240,8 +232,6 @@ export function HealthView({
               inventory={attentionInventory}
               report={report}
               handlers={handlers}
-              standaloneFileSyncBlocked={standaloneFileSyncBlocked}
-              showAttachmentUpgrade={showAttachmentUpgrade}
               part="differences"
             />
           }
@@ -498,7 +488,6 @@ function InventoryComparison({
   inventory,
   report,
   handlers,
-  standaloneFileSyncBlocked,
   localBytes = null,
   serverStorage = null,
   part = "all",
@@ -509,8 +498,6 @@ function InventoryComparison({
   inventory: HealthInventory;
   report: VaultHealthSnapshot["report"];
   handlers: HealthHandlers;
-  standaloneFileSyncBlocked: boolean;
-  showAttachmentUpgrade: boolean;
   /** Attachment + standalone-file bytes on disk; null while unknown. */
   localBytes?: number | null;
   /** The Remote Vault's file/attachment bytes; null when unknown. */
@@ -523,21 +510,17 @@ function InventoryComparison({
     inventory.serverOnlyFolders.length +
     inventory.deviceOnlyFiles.length +
     inventory.serverOnlyFiles.length;
-  const localOnlyFormatNotes = standaloneFileSyncBlocked
-    ? inventory.deviceOnlyFiles.length
-    : 0;
   const comparisonPending = !inventory.localReady;
-  const unexpectedDifferences = differences - localOnlyFormatNotes;
   const countsDiffer =
     inventory.localReady &&
     inventory.server != null &&
     (inventory.local.notes !== inventory.server.notes ||
       inventory.local.folders !== inventory.server.folders ||
-      inventory.local.files !== inventory.server.files + localOnlyFormatNotes);
+      inventory.local.files !== inventory.server.files);
   const stored = inventory.serverStored;
   const restrictedNotes = stored && inventory.server
     ? Math.max(0, stored.notes + stored.files - inventory.server.notes - inventory.server.files) : 0;
-  const comparisonWarn = unexpectedDifferences > 0 || countsDiffer;
+  const comparisonWarn = differences > 0 || countsDiffer;
   const comparisonStale = inventory.serverState === "last-known";
   // Only a bulk run that is actually moving puts the comparison on hold. A
   // socket that is merely (re)connecting is not updating anything yet, and
@@ -556,7 +539,7 @@ function InventoryComparison({
     inventory.serverOnlyFolders.length > 0
       ? `${inventory.serverOnlyFolders.length.toLocaleString()} ${inventory.serverOnlyFolders.length === 1 ? "folder is" : "folders are"} missing from this computer`
       : null,
-    !standaloneFileSyncBlocked && inventory.deviceOnlyFiles.length > 0
+    inventory.deviceOnlyFiles.length > 0
       ? `${inventory.deviceOnlyFiles.length.toLocaleString()} ${inventory.deviceOnlyFiles.length === 1 ? "file is" : "files are"} missing from the Remote Vault`
       : null,
     inventory.serverOnlyFiles.length > 0
@@ -581,7 +564,7 @@ function InventoryComparison({
       ? "muted"
       : comparisonWarn
         ? "warn"
-        : localOnlyFormatNotes > 0 || comparisonStale || comparisonPending
+        : comparisonStale || comparisonPending
           ? "muted"
           : "good";
   // A sync in progress is not something to attend to — the pill and the
@@ -631,8 +614,6 @@ function InventoryComparison({
                 ? `${differenceSummaries.join(" · ")}${comparisonStale ? " (based on the last known Remote Vault view)" : ""}`
                 : countsDiffer
                   ? "The latest note and folder counts do not match yet"
-                  : localOnlyFormatNotes > 0
-                    ? `${localOnlyFormatNotes.toLocaleString()} ${localOnlyFormatNotes === 1 ? "file stays" : "files stay"} on this computer`
                   : comparisonStale
                     ? "The current Remote Vault contents cannot be confirmed"
                   : restrictedNotes > 0
@@ -645,12 +626,6 @@ function InventoryComparison({
               : inventory.server
               ? comparisonPending
                 ? "The comparison will appear when the supported vault file list is ready."
-                : standaloneFileSyncBlocked && inventory.serverOnlyFiles.length > 0
-                ? "This server requires Team to download files, including previously uploaded files. Review differences for available actions."
-                : localOnlyFormatNotes > 0
-                ? comparisonStale
-                  ? "Syncing these file types requires Team. The Remote Vault view is last known and may be out of date."
-                  : "Syncing these file types requires Team. They remain available to preview locally."
                 : comparisonStale
                   ? "The Remote Vault is unavailable, so this last-known comparison may be out of date."
                 : restrictedNotes > 0
@@ -674,7 +649,6 @@ function InventoryComparison({
           <LocalOnlyGroup
             inventory={inventory}
             actions={handlers.actions}
-            filesBlocked={standaloneFileSyncBlocked}
             onOpen={handlers.openNote}
             onShow={(path) => void handlers.actions.reveal(path)}
             stale={comparisonStale}
@@ -682,7 +656,6 @@ function InventoryComparison({
           <RemoteOnlyGroup
             inventory={inventory}
             actions={handlers.actions}
-            downloadsBlocked={standaloneFileSyncBlocked}
             showCheckAgain={inventory.serverOnlyNotes.length + inventory.serverOnlyFolders.length > 0}
             stale={comparisonStale}
           />

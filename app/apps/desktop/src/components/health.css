@@ -2385,12 +2385,6 @@ span.health-issue-summary {
   flex: 0 0 auto;
   color: var(--text-tertiary);
 }
-.health-pro-tag {
-  color: var(--text-tertiary);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
 /* Keeps rows without a checkbox aligned with rows that have one. */
 .health-place-checkslot {
   flex: 0 0 auto;

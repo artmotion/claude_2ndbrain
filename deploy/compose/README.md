@@ -76,8 +76,8 @@ docker compose exec -T postgres pg_dump -U secondbrain secondbrain | gzip > seco
 - **Google sign-in** — set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` with the
   redirect URI `https://<your-server>/api/auth/callback/google`. Unset, the
   desktop app hides the Google button and email + password still works.
-- **Billing stays off.** Leave the Polar block alone. Billing off means *no*
-  limits — unlimited vaults, unlimited members.
+- **No plans or limits.** Billing was removed from this fork: vaults, members,
+  notes and storage are unlimited, and the Assistant and file sync are always on.
 - **Multiple instances** — only then set `REDIS_URL`, so every instance shares
   the vault replication feed. A single server uses in-memory pub/sub and needs no
   Redis.

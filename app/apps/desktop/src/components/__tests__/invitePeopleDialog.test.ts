@@ -13,7 +13,6 @@ vi.mock("../../store", async () => {
   const { create } = await import("zustand");
   return { useStore: create(() => ({})) };
 });
-vi.mock("../UpgradeDialog", () => ({ UpgradeDialog: () => null }));
 
 describe("Invite people dialog", () => {
   let root: Root;

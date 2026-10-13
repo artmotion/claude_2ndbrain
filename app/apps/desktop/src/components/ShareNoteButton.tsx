@@ -165,7 +165,7 @@ function ShareNoteDialog({
   const shownUrl = publicLink?.url ?? lastUrl;
   const title = notePath ? noteLabel(notePath) : "this note";
 
-  // Portalled to <body>, like UpgradeDialog: the header row's floating pill is
+  // Portalled to <body>: the header row's floating pill is
   // a containing block for anything positioned inside it.
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>

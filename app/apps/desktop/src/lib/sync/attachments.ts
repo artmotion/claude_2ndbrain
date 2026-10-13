@@ -527,13 +527,6 @@ function staleBaseCurrent(e: unknown): ServerBlob | null {
   };
 }
 
-class AbortPass extends Error {
-  constructor(public readonly reason: string) {
-    super(reason);
-    this.name = "AbortPass";
-  }
-}
-
 /** The HTTP status a thrown API/transport error carries, when it carries one. */
 function errStatus(e: unknown): number | null {
   if (!e || typeof e !== "object") return null;
@@ -547,12 +540,6 @@ function errStatus(e: unknown): number | null {
  * (`code`, or `error`/`code` inside `body`) is what both the real
  * `BlobTransportError` and a test's plain object have in common.
  */
-/** The plan a 402 names (`requiredPlan`); a server without the field is a per-vault (Pro) one. */
-function requiresTeam(e: unknown): boolean {
-  const body = e && typeof e === "object" ? (e as { body?: unknown }).body : null;
-  return !!body && typeof body === "object" && (body as { requiredPlan?: unknown }).requiredPlan === "team";
-}
-
 function errCode(e: unknown): string | null {
   if (!e || typeof e !== "object") return null;
   const direct = (e as { code?: unknown }).code;
@@ -664,11 +651,9 @@ class BytesInFlight {
  *
  * The first item of every pass is a probe, and what it probes is the SERVER, not
  * the file: whether this server speaks the intent flow at all (404 ⇒ legacy for
- * the whole session), whether it takes extracted text (404 ⇒ stop offering),
- * whether the vault has storage left (402 ⇒ abandon the pass). Every one of
- * those answers is remembered, so learning it before the fan-out costs one round
- * trip instead of {@link BINARY_CONCURRENCY} of them — and, for the 402, means a
- * full vault still aborts after exactly one refusal the way it always has.
+ * the whole session) and whether it takes extracted text (404 ⇒ stop
+ * offering). Every one of those answers is remembered, so learning it before
+ * the fan-out costs one round trip instead of {@link BINARY_CONCURRENCY} of them.
  *
  * `worker` owns its errors, exactly as `runPool` requires; anything it throws is
  * swallowed here for the same reason.
@@ -868,13 +853,6 @@ export interface AttachmentSyncDeps {
    */
   onFileStates?: (states: Record<string, DocSyncState>) => void;
   /**
-   * Publish the server's attachment-plan verdict for this vault. This is set
-   * only from the explicit 402 contract response — never inferred from a Free
-   * label, because Pro status may be stale locally and billing-disabled
-   * self-hosts may sync attachments without a subscription.
-   */
-  onEntitlementBlocked?: (blocked: boolean) => void;
-  /**
    * This pass is about to pull `count` files DOWN — a teammate's drop, or a
    * file whose access just came back.
    *
@@ -1008,9 +986,7 @@ export interface ReconcileResult {
 }
 
 /** The intent's registration refusals (`files-with-bytes`): each one means no
- *  row was written, and the old register-then-upload path decides. A 402
- *  `attachment_sync_requires_pro` is NOT here — it stops the pass exactly as
- *  the old intent's 402 does. */
+ *  row was written, and the old register-then-upload path decides. */
 const ONE_STEP_REFUSALS = new Set([
   "invalid_register",
   "path_folder_mismatch",
@@ -1018,9 +994,6 @@ const ONE_STEP_REFUSALS = new Set([
   "no_write_access",
   "root_frozen",
   "not_readable",
-  // The Free note cap refuses the REGISTRATION, not the bytes: the old path
-  // uploads without a doc_id, as it does when `POST /api/files` hits it.
-  "note_limit_reached",
 ]);
 function isOneStepRefusal(code: string | null | undefined): boolean {
   return code != null && ONE_STEP_REFUSALS.has(code);
@@ -1029,10 +1002,6 @@ function isOneStepRefusal(code: string | null | undefined): boolean {
 export class AttachmentSync {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
-  /** A 402 contract response is stable for this session; do not poll it. */
-  private attachmentSyncBlocked = false;
-  private legacyListingBlocked = false;
-  private legacyListingRetryAt = 0;
   private rerun = false;
   /**
    * Does this server speak the intent flow? `null` = not asked, `false` = it
@@ -1069,8 +1038,6 @@ export class AttachmentSync {
   private embedRefusalTimer: ReturnType<typeof setTimeout> | null = null;
   /** The "your image could not be shared" toast, once per sync instance. */
   private embedRefusalNotified = false;
-  /** The storage-full toast is raised at most once per sync instance. */
-  private storageLimitNotified = false;
   /** relPath → the state the sidebar draws for it (see `deps.onFileStates`). */
   private fileStates = new Map<string, DocSyncState>();
 
@@ -1222,7 +1189,7 @@ export class AttachmentSync {
    * The user asked to retry these files (Vault Health). Forget what this session
    * decided never to try again for them — a refused registration, a permanent
    * skip for their bytes — and run a pass now. Everything else a pass decides
-   * (the plan gate, the quota, the delete windows) still applies.
+   * (the delete windows) still applies.
    */
   async retryFiles(paths: readonly string[]): Promise<ReconcileResult> {
     const wanted = new Set(paths.map((p) => pathKey(p)));
@@ -1242,9 +1209,6 @@ export class AttachmentSync {
 
   /** Run one full reconcile pass now. Coalesces if one is already in flight. */
   async reconcile(): Promise<ReconcileResult> {
-    // A server can be upgraded while this desktop stays open. Re-probe old
-    // whole-list refusals occasionally so existing Free members recover too.
-    if (this.legacyListingBlocked && Date.now() < this.legacyListingRetryAt) return { uploaded: 0, downloaded: 0 };
     if (!this.current()) return { uploaded: 0, downloaded: 0 };
     if (this.running) {
       // Ensure the in-flight pass runs again to pick up whatever changed.
@@ -1317,20 +1281,10 @@ export class AttachmentSync {
           }
           this.setFileState(path, "synced");
         } catch (e) {
-          if (this.handleAttachmentSyncRequired(e, false)) throw e;
           failures.push(`${path}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
       if (failures.length) throw new Error(failures.join("\n"));
-    } catch (e) {
-      if (this.handleAttachmentSyncRequired(e, false)) {
-        throw new Error(
-          requiresTeam(e)
-            ? "Standalone file sync needs the Team plan, including files uploaded before the restriction. The account owner can upgrade in Account Settings → Plan & Billing."
-            : "This server requires Pro to download files in this vault, including files uploaded before the restriction. Upgrade this vault or contact its owner.",
-        );
-      }
-      throw e;
     } finally {
       this.running = false;
       if (this.rerun && this.current()) this.scheduleReconcile();
@@ -1381,14 +1335,6 @@ export class AttachmentSync {
     }, EMBED_REFUSAL_RETRY_MS);
   }
 
-  /** Clear a plan refusal after billing refresh has confirmed an upgrade. */
-  resetEntitlement(): void {
-    this.legacyListingBlocked = false;
-    const wasBlocked = this.attachmentSyncBlocked;
-    this.attachmentSyncBlocked = false;
-    if (wasBlocked) this.deps.onEntitlementBlocked?.(false);
-  }
-
   private async pass(): Promise<ReconcileResult> {
     // Listing is the one step outside a per-file try/catch, and it is the step
     // that fails routinely: the local read is epoch-pinned (so Rust REJECTS it the
@@ -1401,24 +1347,10 @@ export class AttachmentSync {
     try {
       [local, server] = await Promise.all([localListing, this.deps.listServer()]);
     } catch (e) {
-      if (errStatus(e) === 402 && errCode(e) === "attachment_sync_requires_pro") {
-        this.legacyListingBlocked = true;
-        this.legacyListingRetryAt = Date.now() + 60_000;
-        let hasLocalAttachments = false;
-        try {
-          hasLocalAttachments = (await localListing).length > 0;
-        } catch {
-          // The plan verdict remains authoritative; only its announcement waits
-          // for positive local evidence.
-        }
-        this.handleAttachmentSyncRequired(e, hasLocalAttachments);
-        return { uploaded: 0, downloaded: 0 };
-      }
       console.warn("[attachments] listing failed — skipping this pass", e);
       return { uploaded: 0, downloaded: 0 };
     }
     if (!this.current()) return { uploaded: 0, downloaded: 0 };
-    this.legacyListingBlocked = false;
     // Re-read per pass: a file dropped a second ago has no `files` row yet, and
     // the next pass is when it does.
     this.localIds = null;
@@ -1449,7 +1381,7 @@ export class AttachmentSync {
       isTombstoned: tombstoned ? (docId) => tombstoned.has(docId) : undefined,
     });
     await this.trashTombstoned(plan.toTrash);
-    if (!this.attachmentSyncBlocked) await this.moveRenamedOffline(plan.toMove);
+    await this.moveRenamedOffline(plan.toMove);
     if (!this.current()) return { uploaded: 0, downloaded: 0 };
     const { toDownload } = plan;
     // A 0-byte file has nothing to upload: the server refuses an empty blob
@@ -1494,7 +1426,6 @@ export class AttachmentSync {
     // missing, and it must not be counted or badged as one.
     const downloads: ServerBlob[] = [];
     for (const b of toDownload) {
-      if (this.attachmentSyncBlocked && b.relPath && !isUnderAttachments(b.relPath)) continue;
       if (b.relPath && this.deps.isDeletePending?.(b.relPath)) {
         console.info(`[attachments] ${b.relPath} has a delete pending — not downloading it back`);
         continue;
@@ -1550,18 +1481,12 @@ export class AttachmentSync {
 
     let uploaded = 0;
     let downloaded = 0;
-    // Abandoned for the whole pass, not the one file (see {@link AbortPass}):
-    // the quota refusal is the vault's answer, so it becomes a flag the pool's
-    // `shouldStop` reads and every lane stops picking up new work at its next
-    // checkpoint. Downloads are skipped too, exactly as before.
-    let aborted: string | null = null;
     const bytes = new BytesInFlight(BYTES_IN_FLIGHT_BUDGET);
     await runProbeFirst(
       toUpload,
       async (a) => {
         // A file the server has already refused for good (too large, wrong type)
         // is skipped without a round trip — see `permanentSkips`.
-        if (this.attachmentSyncBlocked && !isUnderAttachments(a.relPath)) return;
         if (this.isPermanentlySkipped(a.sha256)) return;
         const refusedUntil = this.embedRefusedUntil.get(a.sha256);
         if (refusedUntil !== undefined) {
@@ -1610,8 +1535,6 @@ export class AttachmentSync {
             this.setFileState(a.relPath, "queued");
             return;
           }
-          if (this.handleAttachmentSyncRequired(e)) return;
-          if (e instanceof AbortPass && e.reason === "attachment_sync_requires_pro") return;
           const failed = errStatus(e);
           if (failed === 413 || failed === 415) {
             // Too large / wrong type from the byte route itself (the legacy
@@ -1624,21 +1547,6 @@ export class AttachmentSync {
             );
             return;
           }
-          // A lapsed Team account is read-only, not a broken file: no error row.
-          if (e instanceof AbortPass && e.reason === "account_read_only") {
-            this.setFileState(a.relPath, "queued");
-            aborted = e.reason;
-            return;
-          }
-          if (e instanceof AbortPass) {
-            // Nothing else in this pass can succeed either. Downloads are skipped
-            // too: the vault is full, and the next pass will find the same state.
-            // This file is not broken — it is waiting, like every one behind it.
-            this.setFileState(a.relPath, "queued");
-            if (!aborted) console.warn("[attachments] pass aborted:", e.reason);
-            aborted = e.reason;
-            return;
-          }
           // Transient (offline, a 5xx). It stays `syncing`: the next pass runs it
           // again, and `error` is reserved for a refusal retrying cannot fix.
           console.error("[attachments] upload failed", a.relPath, e);
@@ -1649,12 +1557,10 @@ export class AttachmentSync {
         // Re-checked per file: a big vault is hundreds of awaits, and every one
         // of them is a chance for the user to switch vaults. Continuing would
         // upload the NEW vault's files into the OLD vault's blob store.
-        shouldStop: () => aborted != null || !this.current(),
+        shouldStop: () => !this.current(),
       },
     );
-    if (aborted) return { uploaded, downloaded };
     const replaces = replacements.filter((r) => {
-      if (this.attachmentSyncBlocked) return false;
       if (this.deps.isDeletePending?.(r.local.relPath)) return false;
       if (r.keepCopy && !this.deps.keepLocalCopy) {
         console.warn(
@@ -1708,7 +1614,6 @@ export class AttachmentSync {
           settled++;
           this.deps.onDownloadSettled?.("ok");
         } catch (e) {
-          this.handleAttachmentSyncRequired(e);
           console.error("[attachments] download failed", b.relPath, e);
           // The dot stays `syncing` — like a failed upload, `error` is reserved
           // for a refusal retrying cannot fix, and the next pass tries again.
@@ -1737,7 +1642,6 @@ export class AttachmentSync {
           settled++;
           this.deps.onDownloadSettled?.("ok");
         } catch (e) {
-          this.handleAttachmentSyncRequired(e);
           console.error("[attachments] replace failed", relPath, e);
           settled++;
           this.deps.onDownloadSettled?.("failed");
@@ -1846,8 +1750,6 @@ export class AttachmentSync {
   /**
    * Move one local-only attachment to the server. Returns whether it counts as
    * uploaded (a dedupe does — the server has the bytes, which is the point).
-   *
-   * Throws {@link AbortPass} when the failure is the vault's, not the file's.
    *
    * Serialized BY CONTENT. The loop used to be serial, so two vault paths
    * holding identical bytes uploaded once and the second found the sha already
@@ -1974,14 +1876,6 @@ export class AttachmentSync {
       }
       const current = staleBaseCurrent(e);
       if (current) throw new StaleBase(current);
-      if (status === 402) {
-        if (errCode(e) === "attachment_sync_requires_pro") {
-          this.handleAttachmentSyncRequired(e);
-          throw new AbortPass("attachment_sync_requires_pro");
-        }
-        this.notifyStorageLimit();
-        throw new AbortPass(errCode(e) ?? "storage_limit_reached");
-      }
       if (
         status === 400 &&
         errCode(e) === "invalid_rel_path" &&
@@ -2262,39 +2156,6 @@ export class AttachmentSync {
   }
 
   /** One toast per sync instance — a full vault is one fact, not one per file. */
-  private notifyStorageLimit(): void {
-    if (this.storageLimitNotified) return;
-    this.storageLimitNotified = true;
-    this.deps.notify?.(
-      "This vault is out of attachment storage — new files won't sync until you free space or upgrade.",
-      "error",
-    );
-  }
-
-  /**
-   * Remember a plan refusal for this sync instance. Watcher bursts continue to
-   * call `reconcile`, so memoizing it is what turns a stable 402 into one clear
-   * local-only state instead of a retry loop and a stream of identical toasts.
-   */
-  private handleAttachmentSyncRequired(e: unknown, announce = true): boolean {
-    if (errStatus(e) !== 402 || errCode(e) !== "attachment_sync_requires_pro") return false;
-    if (!this.attachmentSyncBlocked) {
-      this.attachmentSyncBlocked = true;
-      this.fileStates.clear();
-      this.publishFileStates();
-      this.deps.onEntitlementBlocked?.(true);
-      if (announce) {
-        this.deps.notify?.(
-          requiresTeam(e)
-            ? "Standalone files sync on the Team plan. Embedded attachments still sync with notes."
-            : "Upgrade to Pro to sync standalone files. Embedded attachments sync with notes on supported servers.",
-          "neutral",
-        );
-      }
-    }
-    return true;
-  }
-
   // ---- Download ----------------------------------------------------------
 
   /**
@@ -2483,13 +2344,6 @@ export class AttachmentSync {
       } catch (e) {
         const status = errStatus(e);
         const code = errCode(e);
-        // A plan limit stops the PRE-REGISTRATION and nothing else: the files
-        // are not broken, the vault is full. The upload loop below then hits the
-        // same limit and aborts the pass the way it always has.
-        if (status === 402 || code === "vault_limit_reached") {
-          console.warn(`[attachments] files/batch stopped — ${code ?? status}`);
-          return;
-        }
         // Same reading as one refused registration, applied to the request: an
         // ANSWER (4xx that is not the retryable 400) is a decision about these
         // files; anything else is a hiccup that must not cost them their doc_id.

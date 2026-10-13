@@ -11,7 +11,7 @@ import { createPortal } from "react-dom";
  * They now render as one centered card over a dimmed backdrop. Keeping the
  * shell here is the point: two surfaces that look identical must not drift.
  *
- * Portalled to `<body>` for the same reason `UpgradeDialog` is: settings is
+ * Portalled to `<body>`: settings is
  * mounted from `AccountMenu`, a leaf of `.sidebar-footer`, and a fixed backdrop
  * rendered there is one `transform`/`filter` on an ancestor away from being
  * clipped to a sidebar-sized box.
@@ -70,7 +70,7 @@ export function SettingsModal({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       // Anything opened from *inside* settings owns Esc first: a dialog stacked
-      // above us (Upgrade, Sign in, a confirm — each renders a
+      // above us (Sign in, a confirm — each renders a
       // `.modal-backdrop`) or an open popover (`MenuSelect`'s role menus render
       // a portalled `.context-menu`). One of those on screen means we are not
       // the topmost surface, and closing the whole modal out from under it is

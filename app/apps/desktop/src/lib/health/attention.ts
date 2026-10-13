@@ -108,8 +108,6 @@ export function issueGroupTitle(kind: HealthIssueKind, n: number): string {
       return `${plural(n, "note", "notes")} couldn't upload`;
     case "register-failed":
       return `${plural(n, "item", "items")} couldn't be added to the Remote Vault`;
-    case "limit":
-      return "Plan limit reached";
     case "unregistered":
       return `${plural(n, "note isn't", "notes aren't")} registered`;
     case "no-access":
@@ -136,8 +134,6 @@ export function issueRowSentence(issue: Pick<HealthIssue, "kind" | "title">): st
   switch (issue.kind) {
     case "no-access":
       return "You don't have access to this vault";
-    case "limit":
-      return "Your plan's limit stopped new notes from syncing";
     case "orphan-history":
       return "History kept for notes this vault no longer has";
     case "sync-paused":

@@ -185,7 +185,6 @@ export type BulkErrorCode =
   | "no_edit_permission"
   | "unknown_note"
   | "note_too_large"
-  | "vault_limit_reached"
   | "session_expired"
   | "bootstrap_busy"
   | "server_too_old";
@@ -205,7 +204,6 @@ export const BULK_ERROR_CODES: readonly BulkErrorCode[] = [
   "no_edit_permission",
   "unknown_note",
   "note_too_large",
-  "vault_limit_reached",
   "session_expired",
   "bootstrap_busy",
   "server_too_old",

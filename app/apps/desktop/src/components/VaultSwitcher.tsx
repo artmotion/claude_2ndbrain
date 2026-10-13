@@ -21,7 +21,6 @@ import {
 import { useLocalFolderClasses, useLocalVaults, useRecentVaults } from "./useVaultLists";
 import { visibleFolders } from "../lib/vault/vaultList";
 import { MenuIcon } from "./MenuIcon";
-import { PeopleLimitNotice, peopleLimitKind } from "./PeopleLimitNotice";
 
 // DiceBear is heavy; the tile paints its initial until the glyph chunk lands.
 const VaultIconSvg = lazy(() => import("./VaultIconSvg"));
@@ -394,22 +393,19 @@ function JoinVaultItem({ onDone }: { onDone: () => void }) {
   const [joining, setJoining] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [limitCause, setLimitCause] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
   const join = async () => {
     if (!code.trim()) return;
     setBusy(true);
     setError(null);
-    setLimitCause(null);
     try {
       await useStore.getState().joinVault(code);
       setCode("");
       setJoining(false);
       onDone();
     } catch (e) {
-      if (peopleLimitKind(e)) setLimitCause(e);
-      else setError(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -445,7 +441,6 @@ function JoinVaultItem({ onDone }: { onDone: () => void }) {
         </button>
       </div>
       {error && <div className="auth-error">{error}</div>}
-      {limitCause != null && <PeopleLimitNotice error={limitCause} canManageBilling={false} />}
     </>
   );
 }

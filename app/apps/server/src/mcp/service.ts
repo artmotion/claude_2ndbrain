@@ -1,4 +1,3 @@
-import { withNoteQuota, NoteQuotaError } from "../billing/note-quota.js";
 import { randomUUID } from "node:crypto";
 import { pool } from "../db/pool.js";
 import { orgRole, resolveResource } from "../permissions/lookup.js";
@@ -10,9 +9,6 @@ import {
   filterReadableBlobs,
   vaultRootWritable,
   canDeleteItem,
-  billingReadOnly,
-  ACCOUNT_READ_ONLY,
-  ACCOUNT_READ_ONLY_MESSAGE,
 } from "../permissions/http-gates.js";
 import {
   TreeOpError,
@@ -93,15 +89,6 @@ export class McpToolError extends Error {
   }
 }
 
-/** A write refusal: `account_read_only` when the vault's billing account has
- *  lapsed, else the caller's ordinary message. */
-async function writeRefusal(orgId: string, message: string, code?: string): Promise<McpToolError> {
-  try {
-    if (await billingReadOnly(orgId)) return new McpToolError(ACCOUNT_READ_ONLY_MESSAGE, ACCOUNT_READ_ONLY.code);
-  } catch { /* fall through to the ordinary refusal */ }
-  return new McpToolError(message, code);
-}
-
 /** Members delete only what they created; owners/admins delete anything (`canDeleteItem`). */
 async function requireDeletable(
   ctx: McpContext,
@@ -115,8 +102,7 @@ async function requireDeletable(
     id,
   });
   if (gate.ok) return;
-  throw await writeRefusal(
-    ctx.auth.organizationId,
+  throw new McpToolError(
     gate.code === "folder_has_others_items"
       ? "This folder holds items someone else created. Only an owner or admin can delete it."
       : "Only the person who created this, or an owner or admin, can delete it.",
@@ -340,7 +326,7 @@ export async function createFolder(
     throw err;
   }
   if ((await folderWritePermission(ctx.auth, parentId)) !== "edit") {
-    throw await writeRefusal(ctx.auth.organizationId, "You do not have edit access to create a folder here");
+    throw new McpToolError("You do not have edit access to create a folder here");
   }
   // Adopt an existing row at this path instead of inserting a duplicate, exactly
   // as `POST /api/folders` does. Matched case-insensitively and echoing the
@@ -416,7 +402,7 @@ export async function deleteFolder(
   if (!vaultId) throw new McpToolError(`Unknown folder: ${folderId}`);
   await requireVaultInScope(ctx.auth, vaultId);
   if ((await folderWritePermission(ctx.auth, folderId)) !== "edit") {
-    throw await writeRefusal(ctx.auth.organizationId, "You do not have edit access to delete this folder");
+    throw new McpToolError("You do not have edit access to delete this folder");
   }
   await requireDeletable(ctx, "folder", folderId);
   if (!opts.recursive) {
@@ -451,7 +437,7 @@ export async function moveFolderTool(
   if (!folder) throw new McpToolError(`Unknown folder: ${input.folderId}`);
   await requireVaultInScope(ctx.auth, folder.vault_id);
   if ((await folderWritePermission(ctx.auth, input.folderId)) !== "edit") {
-    throw await writeRefusal(ctx.auth.organizationId, "You do not have edit access to move this folder");
+    throw new McpToolError("You do not have edit access to move this folder");
   }
   // Re-parenting must not be a way to change inherited access, so edit on the
   // destination is required too — but only for a real folder. `parentId: null`
@@ -472,7 +458,7 @@ export async function moveFolderTool(
     plan.parentId !== folder.parent_id &&
     (await folderWritePermission(ctx.auth, plan.parentId)) !== "edit"
   ) {
-    throw await writeRefusal(ctx.auth.organizationId, "You do not have edit access to the destination folder");
+    throw new McpToolError("You do not have edit access to the destination folder");
   }
   // Moving a folder OUT to the root is a root creation by another name — the
   // same latch the HTTP registry honours (a rename in place at root is fine).
@@ -514,7 +500,7 @@ export async function moveNoteTool(
     plan.folderId !== note.folder_id &&
     (await folderWritePermission(ctx.auth, plan.folderId)) !== "edit"
   ) {
-    throw await writeRefusal(ctx.auth.organizationId, "You do not have edit access to the destination folder");
+    throw new McpToolError("You do not have edit access to the destination folder");
   }
   // Same root-freeze latch as HTTP's PATCH /api/notes/:id: dragging a note out
   // to a frozen root is refused; a rename in place at root is allowed.
@@ -661,7 +647,7 @@ export async function createNote(
     throw err;
   }
   if ((await folderWritePermission(ctx.auth, folderId)) !== "edit") {
-    throw await writeRefusal(ctx.auth.organizationId, "You do not have edit access to create a note here");
+    throw new McpToolError("You do not have edit access to create a note here");
   }
   // Adopt the live note already at this path instead of inserting a second row,
   // exactly as `createFolder` does. A vault-relative path addresses ONE note —
@@ -710,14 +696,11 @@ export async function createNote(
   await assertRootNotFrozen(input.vaultId, folderId);
 
   const docId = randomUUID();
-  await withNoteQuota(input.vaultId, pool, async (db, remaining, cap) => {
-    if (remaining !== null && remaining <= 0) throw new NoteQuotaError(cap);
-    await db.query(
+  await pool.query(
     `INSERT INTO notes (id, vault_id, folder_id, title, rel_path, doc_id, created_by)
      VALUES ($1, $2, $3, $4, $5, $1, $6)`,
-      [docId, input.vaultId, folderId, input.title ?? null, storedRelPath, ctx.auth.userId],
-    );
-  });
+    [docId, input.vaultId, folderId, input.title ?? null, storedRelPath, ctx.auth.userId],
+  );
   if (input.content) {
     await ctx.docWriter.setContent(input.vaultId, docId, input.content, {
       userId: ctx.auth.userId,
@@ -741,8 +724,7 @@ async function requireEditableNote(auth: McpAuth, docId: string) {
   const note = await locateNote(auth, docId);
   const perm = await effectivePermission(auth.userId, docId);
   if (perm !== "edit") {
-    throw await writeRefusal(
-      auth.organizationId,
+    throw new McpToolError(
       perm === "view"
         ? "This note is read-only for you (view access or locked)"
         : "You do not have access to this note",
@@ -1165,8 +1147,7 @@ export async function deleteFileTool(ctx: McpContext, fileId: string) {
   const out = await deleteRegisteredFile(ctx.auth.userId, fileId, ctx.auth.organizationId);
   if (out.status === "gone") throw new McpToolError(`Unknown file: ${fileId}`);
   if (out.status === "not_member") throw new McpToolError("This file is outside the scope of this token");
-  if (out.status === "account_read_only") throw new McpToolError(ACCOUNT_READ_ONLY_MESSAGE, ACCOUNT_READ_ONLY.code);
-  if (out.status === "forbidden") throw await writeRefusal(ctx.auth.organizationId, "You do not have edit access to this file");
+  if (out.status === "forbidden") throw new McpToolError("You do not have edit access to this file");
   if (out.status === "not_creator") {
     throw new McpToolError(
       "Only the person who created this, or an owner or admin, can delete it.",

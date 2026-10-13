@@ -28,7 +28,6 @@ vi.mock("../../lib/sync/docSession", () => ({
     syncFailures: () => ({
       registry: [],
       content: [{ docId: "d1", relPath: "x.md", reason: "network" }],
-      limitCode: null,
     }),
     setActivityChangedListener: () => {},
   },

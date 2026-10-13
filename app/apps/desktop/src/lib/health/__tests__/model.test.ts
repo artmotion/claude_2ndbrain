@@ -10,7 +10,6 @@ import { syncBadgeLabel } from "../../../components/Identity";
 import {
   buildHealthReport,
   classifyUploadReason,
-  isLimitCode,
   MAX_UNREGISTERED_ISSUES,
   num,
   ownerOf,
@@ -34,7 +33,7 @@ function input(over: Partial<HealthInput> = {}): HealthInput {
     docIdByPath: {},
     docSyncState: {},
     localNotePaths: [],
-    failures: { registry: [], content: [], limitCode: null },
+    failures: { registry: [], content: [] },
     stats: null,
     ...over,
   };
@@ -179,7 +178,6 @@ describe("verdict precedence", () => {
         failures: {
           registry: [],
           content: [{ docId: "doc-1", relPath: "Notes/note-001.md", reason: "socket reset" }],
-          limitCode: null,
         },
       }),
     );
@@ -257,7 +255,7 @@ describe("content failures", () => {
 
   it("maps a typed size failure to `too-large`, never offering a Retry that cannot work", () => {
     const r = buildHealthReport(
-      input({ failures: { registry: [], content: [tooLargeFile], limitCode: null } }),
+      input({ failures: { registry: [], content: [tooLargeFile] } }),
     );
     const i = r.issues[0];
     expect(i.kind).toBe("too-large");
@@ -278,7 +276,7 @@ describe("content failures", () => {
 
   it("tells the two too-large shapes apart: the FILE versus the edit HISTORY", () => {
     const r = buildHealthReport(
-      input({ failures: { registry: [], content: [tooLargeHistory], limitCode: null } }),
+      input({ failures: { registry: [], content: [tooLargeHistory] } }),
     );
     expect(r.issues[0].why).toContain("edit history is 17.2 MB");
     expect(r.issues[0].why).toContain("The note's own text is not the problem");
@@ -293,7 +291,6 @@ describe("content failures", () => {
         failures: {
           registry: [],
           content: [{ docId: "d", relPath: "X.md", reason: "the server said no", permanent: true }],
-          limitCode: null,
         },
       }),
     );
@@ -316,7 +313,6 @@ describe("content failures", () => {
               kind: "no-write-access",
             },
           ],
-          limitCode: null,
         },
       }),
     );
@@ -332,7 +328,6 @@ describe("content failures", () => {
         failures: {
           registry: [],
           content: [{ docId: "d1", relPath: "A.md", reason: "socket closed" }],
-          limitCode: null,
         },
       }),
     );
@@ -345,53 +340,11 @@ describe("content failures", () => {
 });
 
 describe("registry failures", () => {
-  it("recognises the plan-limit codes and only those", () => {
-    expect(isLimitCode("vault_limit_reached")).toBe(true);
-    expect(isLimitCode("member_limit_reached")).toBe(true);
-    expect(isLimitCode("root_frozen")).toBe(false);
-    expect(isLimitCode(null)).toBe(false);
-  });
-
-  it("maps a limit code to `limit` with the upgrade remedy, not a pointless Retry", () => {
-    const r = buildHealthReport(
-      input({
-        failures: {
-          registry: [
-            {
-              kind: "note",
-              path: "New.md",
-              docId: "d9",
-              reason: "402",
-              code: "vault_limit_reached",
-            },
-          ],
-          content: [],
-          limitCode: "vault_limit_reached",
-        },
-      }),
-    );
-    const i = r.issues.find((x) => x.kind === "limit");
-    expect(i?.remedies).toEqual(["upgrade", "copy-details"]);
-    expect(i?.code).toBe("vault_limit_reached");
-    // One limit conversation, not two: the vault-level fallback must not double up.
-    expect(r.issues.filter((x) => x.kind === "limit")).toHaveLength(1);
-  });
-
-  it("still says the limit once when no individual row carried the code", () => {
-    const r = buildHealthReport(
-      input({ failures: { registry: [], content: [], limitCode: "member_limit_reached" } }),
-    );
-    const i = r.issues.find((x) => x.kind === "limit");
-    expect(i).toBeDefined();
-    expect(i?.path).toBeNull();
-    expect(i?.remedies).toEqual(["upgrade", "copy-details"]);
-  });
-
   it("reports refused inbound removals as safety checks without claiming a downloaded copy", () => {
     const r = buildHealthReport(input({ failures: {
       registry: [{ kind: "inbound-blocked", path: "Campaigns", docId: null,
         reason: "refused: 1743 folder access removals exceeds the safety limit", code: null }],
-      content: [], limitCode: null,
+      content: [],
     } }));
     const issue = r.issues.find((i) => i.path === "Campaigns")!;
     expect(issue.kind).toBe("inbound-blocked");
@@ -405,7 +358,7 @@ describe("registry failures", () => {
     const r = buildHealthReport(input({ failures: {
       registry: [{ kind: "inbound-blocked", path: "Old/n.md", docId: "old-id",
         reason: "This path is a symbolic link. 2ndBrain does not sync through links.", code: "symlink" }],
-      content: [], limitCode: null,
+      content: [],
     } }));
     const issue = r.issues.find((i) => i.path === "Old/n.md")!;
     expect(issue.kind).toBe("inbound-blocked");
@@ -419,7 +372,7 @@ describe("registry failures", () => {
     const r = buildHealthReport(input({ failures: {
       registry: [{ kind: "inbound-blocked", path: "Team/x.md", docId: "x-id",
         reason: "removed from this folder in a bulk delete", code: "delete_decision" }],
-      content: [], limitCode: null,
+      content: [],
     } }));
     const issue = r.issues.find((i) => i.path === "Team/x.md")!;
     expect(issue.kind).toBe("inbound-blocked");
@@ -473,7 +426,6 @@ describe("registry failures", () => {
             { kind: "inbound", path: "c/I.md", docId: "d3", reason: "EACCES", code: null },
           ],
           content: [],
-          limitCode: null,
         },
       }),
     );
@@ -511,7 +463,6 @@ describe("registry failures", () => {
             },
           ],
           content: [],
-          limitCode: null,
         },
       }),
     );
@@ -565,7 +516,6 @@ describe("unregistered notes", () => {
         failures: {
           registry: [{ kind: "note", path: "U/0000.md", docId: null, reason: "500", code: null }],
           content: [],
-          limitCode: null,
         },
       }),
     );
@@ -687,7 +637,6 @@ describe("stage error placement", () => {
         failures: {
           registry: [],
           content: [{ docId: "doc-0", relPath: "Notes/note-000.md", reason: "boom" }],
-          limitCode: null,
         },
       }),
     );
@@ -747,12 +696,10 @@ describe("issue ordering", () => {
             { docId: "d2", relPath: "b.md", reason: "x" },
             { docId: "d1", relPath: "a.md", reason: "x" },
           ],
-          limitCode: "vault_limit_reached",
         },
       }),
     );
     expect(r.issues.map((i) => [i.severity, i.kind, i.path])).toEqual([
-      ["error", "limit", null],
       ["error", "upload-failed", "a.md"],
       ["error", "upload-failed", "b.md"],
       ["warn", "unregistered", "zzz.md"],
@@ -765,7 +712,6 @@ describe("issue ordering", () => {
         failures: {
           registry: [{ kind: "note", path: "A.md", docId: "d1", reason: "500", code: null }],
           content: [{ docId: "d1", relPath: "A.md", reason: "boom" }],
-          limitCode: null,
         },
       }),
     );
@@ -835,13 +781,11 @@ describe("explanations", () => {
             { kind: "note", path: "a/N.md", docId: "d1", reason: "500", code: null },
             { kind: "materialize", path: "b/M.md", docId: "d2", reason: "EACCES", code: null },
             { kind: "orphan", path: "Gone.md", docId: "d7", reason: "revoked", code: null },
-            { kind: "note", path: "c/L.md", docId: "d8", reason: "402", code: "vault_limit_reached" },
           ],
           content: [
             { docId: "d3", relPath: "Big.md", reason: "too large to sync (12.4 MB; the limit is 10 MB)", permanent: true },
             { docId: "d4", relPath: "A.md", reason: "socket closed" },
           ],
-          limitCode: null,
         },
         stats: statsWith({ history: { docs: 3, updates: 9, bytes: 900, orphanDocs: 2, orphanBytes: 400 } }),
       }),
@@ -853,7 +797,6 @@ describe("explanations", () => {
       "register-failed",
       "materialize-failed",
       "left-behind",
-      "limit",
       "no-access",
     ]) {
       expect(kinds).toContain(want);
@@ -870,7 +813,6 @@ describe("explanations", () => {
         failures: {
           registry: [{ kind: "materialize", path: "b/M.md", docId: "d2", reason: "EACCES", code: null }],
           content: [],
-          limitCode: null,
         },
       },
       "materialize-failed",
@@ -882,7 +824,6 @@ describe("explanations", () => {
         failures: {
           registry: [],
           content: [{ docId: "d1", relPath: "A.md", reason: "socket closed" }],
-          limitCode: null,
         },
         },
       "upload-failed",
@@ -903,7 +844,6 @@ describe("explanations", () => {
           content: [
             { docId: "d", relPath: "Big.md", reason: "too large to sync (12.4 MB; the limit is 10 MB)", permanent: true },
           ],
-          limitCode: null,
         },
       },
       "too-large",
@@ -916,25 +856,17 @@ describe("explanations", () => {
         failures: {
           registry: [],
           content: [{ docId: "d", relPath: "A.md", reason: "socket closed" }],
-          limitCode: null,
         },
       },
       "upload-failed",
     );
     expect(transient.autoRetries).toBe(true);
 
-    const limit = issueOf(
-      { failures: { registry: [], content: [], limitCode: "member_limit_reached" } },
-      "limit",
-    );
-    expect(limit.autoRetries).toBe(false);
-
     const leftBehind = issueOf(
       {
         failures: {
           registry: [{ kind: "orphan", path: "Gone.md", docId: "d7", reason: "revoked", code: null }],
           content: [],
-          limitCode: null,
         },
       },
       "left-behind",
@@ -962,7 +894,6 @@ describe("explanations", () => {
               permanent: true,
             },
           ],
-          limitCode: null,
         },
       },
       "too-large",
@@ -1004,7 +935,6 @@ describe("too-large: file versus history", () => {
               permanent: true,
             },
           ],
-          limitCode: null,
         },
       }),
     );
@@ -1031,7 +961,6 @@ describe("too-large: file versus history", () => {
               permanent: true,
             },
           ],
-          limitCode: null,
         },
       }),
     );
@@ -1058,7 +987,6 @@ describe("too-large: file versus history", () => {
               permanent: true,
             },
           ],
-          limitCode: null,
         },
       }),
     );
@@ -1106,7 +1034,6 @@ describe("naming the owner", () => {
             { kind: "note", path: "Other/N.md", docId: null, reason: "500", code: null },
           ],
           content: [],
-          limitCode: null,
         },
       }),
     );
@@ -1130,7 +1057,6 @@ describe("naming the owner", () => {
           failures: {
             registry: [{ kind: "note", path: "N.md", docId: null, reason: "refused", code }],
             content: [],
-            limitCode: null,
           },
         }),
       );
@@ -1167,7 +1093,6 @@ describe("classifyUploadReason", () => {
         failures: {
           registry: [],
           content: [{ docId: "d", relPath: "A.md", reason: "wibble" }],
-          limitCode: null,
         },
       }),
     );
@@ -1203,7 +1128,6 @@ describe("sync paused by the shrink burst brake (#252)", () => {
             { docId: "a", relPath: "a.md", reason: "Sync paused", kind: "shrink-held" },
             { docId: "b", relPath: "b.md", reason: "Sync paused", kind: "shrink-held" },
           ],
-          limitCode: null,
         },
       }),
     );
@@ -1224,7 +1148,6 @@ describe("sync paused by the shrink burst brake (#252)", () => {
         failures: {
           registry: [],
           content: [{ docId: "a", relPath: "a.md", reason: "Sync paused", kind: "shrink-held" }],
-          limitCode: null,
         },
       }),
     );

@@ -18,7 +18,7 @@ export const NOTICE_FADE_MS = 20_000;
 /**
  * Highest first. The first three are the ones that collided; the rest keep the
  * order they had in the column. Notices with a pending choice (sign in, locate
- * the folder, upgrade, close the gone note) never fade; see each call site.
+ * * the folder, close the gone note) never fade; see each call site.
  */
 export const NOTICE_PRIORITY = [
   "held-delete",
@@ -29,14 +29,11 @@ export const NOTICE_PRIORITY = [
   "root-missing",
   // A missing folder inside the vaults root was recreated (informational).
   "root-restored",
-  "account-lapsed",
   "closed-app-changes",
   "not-syncing",
   "sync-paused",
-  "note-limit",
   "create-refusal",
   "removed-on-disk",
-  "attachment-local-only",
 ] as const;
 
 export type NoticeId = (typeof NOTICE_PRIORITY)[number];

@@ -18,7 +18,7 @@ vi.mock("../../../store", async () => {
 vi.mock("../../ipc", () => ({ vaultStats: vi.fn(), vaultChecks: vi.fn(), listTree: vi.fn() }));
 vi.mock("../../sync/docSession", () => ({ syncManager: {
   registry: { healthInventory: () => null },
-  syncFailures: () => ({ registry: [], content: [], limitCode: null }),
+  syncFailures: () => ({ registry: [], content: [] }),
   syncLog: () => [], onSyncLog: () => () => {},
 } }));
 vi.mock("../model", () => ({ buildHealthReport: () => ({ verdict: "syncing", issues: [] }) }));

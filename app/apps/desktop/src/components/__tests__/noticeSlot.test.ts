@@ -114,17 +114,15 @@ describe("pickNotice", () => {
     expect(NOTICE_PRIORITY.slice(0, 3)).toEqual(["held-delete", "reconcile", "note-removed"]);
     expect(pickNotice(new Set(["note-removed", "reconcile", "held-delete"]))).toBe("held-delete");
     expect(pickNotice(new Set(["note-removed", "not-syncing", "reconcile"]))).toBe("reconcile");
-    expect(pickNotice(new Set(["attachment-local-only", "note-removed"]))).toBe("note-removed");
+    expect(pickNotice(new Set(["removed-on-disk", "note-removed"]))).toBe("note-removed");
     expect(pickNotice(new Set())).toBeNull();
   });
 
-  it("puts a lapsed Team subscription after the missing folder and before closed-app changes", () => {
+  it("puts the restored folder after the missing folder and before closed-app changes", () => {
     const at = (id: string) => NOTICE_PRIORITY.indexOf(id as never);
     expect(at("root-restored")).toBe(at("root-missing") + 1);
-    expect(at("account-lapsed")).toBe(at("root-restored") + 1);
-    expect(at("closed-app-changes")).toBe(at("account-lapsed") + 1);
-    expect(pickNotice(new Set(["closed-app-changes", "account-lapsed"]))).toBe("account-lapsed");
-    expect(pickNotice(new Set(["account-lapsed", "root-missing"]))).toBe("root-missing");
+    expect(at("closed-app-changes")).toBe(at("root-restored") + 1);
+    expect(pickNotice(new Set(["closed-app-changes", "root-missing"]))).toBe("root-missing");
   });
 });
 

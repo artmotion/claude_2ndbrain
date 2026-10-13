@@ -29,7 +29,7 @@ export function createHousekeeper({ decide = chooseCandidate, config = providerC
       prune();
       if (action === "status") {
         const provider = host.providerConfig?.() ?? config();
-        return { available: provider.configured, requiresPro: host.requiresPro?.() ?? true, provider: "OpenRouter", model: provider.model };
+        return { available: provider.configured, provider: "OpenRouter", model: provider.model };
       }
       if (!body || typeof body !== "object" || Array.isArray(body)) fail(400, "Invalid request.");
       if (!["suggest", "repair", "diagnose", "apply", "undo", "authorize"].includes(action)) fail(404, "Unknown Housekeeper action.");

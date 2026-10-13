@@ -14,7 +14,6 @@ import { summarizeAccess, type SummaryMode } from "../../permissions/access-summ
 import { invitationState, loadInvitation } from "../../registry/invitations.js";
 import { redactAddresses } from "../../invitations/sweep.js";
 import { getSession } from "../session.js";
-import { ACCOUNT_READ_ONLY_BODY } from "../../permissions/http-gates.js";
 
 /**
  * The Members & access page.
@@ -28,8 +27,8 @@ import { ACCOUNT_READ_ONLY_BODY } from "../../permissions/http-gates.js";
  *    no role exemption: an owner is reported as whatever the resolver says.
  *
  *  - POST /api/orgs/:orgId/invitations (owner/admin) — invite up to 50
- *    addresses at once through Better Auth's own create-invitation (so the
- *    seat-cap hook and re-invite replacement still apply), remember the chosen
+ *    addresses at once through Better Auth's own create-invitation (so
+ *    re-invite replacement still applies), remember the chosen
  *    access in `invitation_access`, and email each invite when the server can.
  *    The access is applied on acceptance (auth.ts afterAcceptInvitation and the
  *    join-code path, `members/invitation-access.ts`).
@@ -370,9 +369,6 @@ function inviteErrorCode(err: unknown): { code: string; status: number } {
       .filter((v): v is string => typeof v === "string")
       .join(" ");
     const status = typeof err.statusCode === "number" ? err.statusCode : 400;
-    if (text.includes("seat_limit_reached")) return { code: "seat_limit_reached", status: 402 };
-    if (text.includes("member_limit_reached")) return { code: "member_limit_reached", status: 402 };
-    if (text.includes("account_read_only")) return { code: "account_read_only", status: 402 };
     if (/already a member/i.test(text)) return { code: "already_member", status };
     return { code: (typeof body.code === "string" && body.code) || "invite_failed", status };
   }
@@ -433,9 +429,6 @@ memberRoutes.post("/orgs/:orgId/invitations", async (c) => {
 
   const canEmail = emailEnabled();
   const results: InviteResult[] = [];
-  let limitError: Record<string, unknown> | null = null;
-  // Serial on purpose: the seat-cap hook counts pending invitations, so
-  // parallel creates could all pass the same last free seat.
   for (const email of emails) {
     try {
       const inv = (await auth.api.createInvitation({
@@ -457,44 +450,11 @@ memberRoutes.post("/orgs/:orgId/invitations", async (c) => {
       results.push({ email, invitationId: inv.id, emailed });
     } catch (err) {
       const { code } = inviteErrorCode(err);
-      if ((code === "member_limit_reached" || code === "seat_limit_reached") && err instanceof APIError) {
-        limitError = (err.body ?? {}) as Record<string, unknown>;
-      }
       if (code === "invite_failed") console.error("[invitations] create failed:", (err as Error).message);
       results.push({ email, emailed: false, error: code });
     }
   }
 
-  if (results.length && results.every((r) => r.error === "account_read_only")) {
-    return c.json({ ...ACCOUNT_READ_ONLY_BODY, results }, 402);
-  }
-  if (results.length && results.every((r) => r.error === "member_limit_reached")) {
-    return c.json(
-      {
-        error: "member_limit_reached",
-        message: "member_limit_reached",
-        ...(typeof limitError?.limit === "number" ? { limit: limitError.limit } : {}),
-        ...(limitError?.scope === "account" ? { scope: "account" } : {}),
-        results,
-      },
-      402,
-    );
-  }
-  if (results.length && results.every((r) => r.error === "seat_limit_reached")) {
-    const n = (k: string) => (typeof limitError?.[k] === "number" ? { [k]: limitError[k] } : {});
-    return c.json(
-      {
-        error: "seat_limit_reached",
-        code: "seat_limit_reached",
-        message: typeof limitError?.message === "string" ? limitError.message : "seat_limit_reached",
-        ...n("seats"),
-        ...n("used"),
-        ...n("pending"),
-        results,
-      },
-      402,
-    );
-  }
   return c.json({ results });
 });
 

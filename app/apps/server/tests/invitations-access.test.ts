@@ -89,8 +89,6 @@ describe("invitations with access", () => {
   });
 
   it("validates the body and gates on owner/admin", async () => {
-    // The seat-cap leg needs billing on; enable it here rather than rely on a local .env.
-    vi.stubEnv("POLAR_ACCESS_TOKEN", "test-polar-access-token");
     expect((await inviteMany(owner, orgId, { emails: [], role: "member", access: null })).status).toBe(400);
     expect((await inviteMany(owner, orgId, { emails: ["nope"], role: "member", access: null })).status).toBe(400);
     expect((await inviteMany(owner, orgId, { emails: ["x@y.zz"], role: "owner", access: null })).status).toBe(400);
@@ -107,14 +105,11 @@ describe("invitations with access", () => {
     await seedMember(orgId, member.userId, "member");
     expect((await inviteMany(member, orgId, { emails: ["z@y.zz"], role: "member", access: null })).status).toBe(403);
 
-    // Free seat cap (billing stubbed on above): owner + admin + member + the pending
-    // invite fill it, so every address fails ⇒ top-level 402 the desktop's
-    // classifyLimitError understands, with per-email detail.
-    const full = await inviteMany(owner, orgId, { emails: ["q@y.zz", "r@y.zz"], role: "member", access: null });
-    expect(full.status).toBe(402);
-    const body = (await full.json()) as InviteResponse & { error: string };
-    expect(body.error).toBe("member_limit_reached");
-    expect(body.results.every((r) => r.error === "member_limit_reached")).toBe(true);
+    // No seat cap: more invitations always go out.
+    const more = await inviteMany(owner, orgId, { emails: ["q@y.zz", "r@y.zz"], role: "member", access: null });
+    expect(more.status).toBe(200);
+    const body = (await more.json()) as InviteResponse;
+    expect(body.results.every((r) => !r.error)).toBe(true);
   });
 
   it("join-code acceptance applies the invite's access as a per-user vault row", async () => {

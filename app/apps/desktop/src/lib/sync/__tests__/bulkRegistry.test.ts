@@ -657,55 +657,6 @@ describe("honest failure reporting", () => {
     expect(reg.getMapping("Note2.md")).not.toBeNull();
   });
 
-  it("treats a 402 plan limit as terminal AND stops the rest of the run", async () => {
-    const { api } = fakeApi();
-    let n = 0;
-    vi.mocked(api.createNote).mockImplementation(
-      async (input: { relPath: string }) => {
-        await tick();
-        n++;
-        if (n === 1) {
-          throw new ApiError(402, "vault limit reached", {
-            code: "vault_limit_reached",
-          });
-        }
-        return serverNote(input.relPath);
-      },
-    );
-    const reg = new VaultRegistry(api);
-    await reconcileWithTree(
-      reg,
-      { organizationId: ORG, vaultName: "v" },
-      tree(24),
-    );
-
-    expect(reg.limitCode()).toBe("vault_limit_reached");
-    expect(reg.failures()[0].code).toBe("vault_limit_reached");
-    // Bounded: it does not grind through 24 notes that would all 402.
-    expect(n).toBeLessThanOrEqual(REGISTRY_CONCURRENCY);
-  });
-
-  it("stops the BATCH path on a 402 too — the remaining chunks are never sent", async () => {
-    const { api, state } = fakeApi();
-    vi.mocked(
-      api as unknown as { batchCreateNotes: (v: string, i: unknown[]) => Promise<unknown> },
-    ).batchCreateNotes.mockImplementation(async () => {
-      await tick();
-      state.noteBatches++;
-      throw new ApiError(402, "vault limit reached", { code: "vault_limit_reached" });
-    });
-    const reg = new VaultRegistry(api);
-    // 900 notes = 5 chunks; the limit must stop it long before the fifth.
-    await reconcileWithTree(reg, { organizationId: ORG, vaultName: "v" }, tree(900));
-
-    expect(reg.limitCode()).toBe("vault_limit_reached");
-    expect(state.noteBatches).toBeLessThanOrEqual(REGISTRY_CONCURRENCY);
-    expect(state.createdNotes).toHaveLength(0);
-    // …and every note in the chunk that DID go out is reported, not swallowed.
-    expect(reg.failures().length).toBeGreaterThan(0);
-    expect(reg.failures()[0].code).toBe("vault_limit_reached");
-  });
-
   it("reports the registering phase and a per-item count", async () => {
     const { api } = fakeApi();
     const { sink, phases, counts } = recordingSink();
