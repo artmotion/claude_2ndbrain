@@ -75,7 +75,11 @@ jobs:
           path: dist-win/*
           if-no-files-found: error
 
+      # Needs "Read and write permissions" for GITHUB_TOKEN (repository
+      # Settings → Actions → General → Workflow permissions). Without it the
+      # installers are still available as the workflow artifact above.
       - name: Publish to the rolling windows-dev prerelease
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: windows-dev
