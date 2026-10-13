@@ -15,3 +15,6 @@ target/
 *.log
 .DS_Store
 .idea/
+
+# Claude Code agent worktrees (local only)
+.claude/worktrees/
