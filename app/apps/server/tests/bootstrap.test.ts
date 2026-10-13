@@ -128,12 +128,21 @@ describe("bootstrap download", () => {
     expect(seen.has(empty)).toBe(false);
   });
 
-  it("delivers every doc exactly once, in path order, across many pages", async () => {
+  it("delivers every doc exactly once, newest-edited first, across many pages", async () => {
     const ids: string[] = [];
     for (let i = 0; i < 40; i++) {
       const id = await seedNote(vault, null, `n${String(i).padStart(2, "0")}.md`, owner.userId);
       await writeDoc(id, `body ${i} ${"x".repeat(200)}`);
       ids.push(id);
+    }
+    // n00 was edited longest ago, n39 most recently; n10..n19 share one
+    // timestamp, so path order must break that tie.
+    for (let i = 0; i < 40; i++) {
+      const minute = i >= 10 && i < 20 ? 10 : i;
+      await pool.query(
+        `UPDATE notes SET last_edited_at = timestamptz '2026-01-01' + make_interval(mins => $2) WHERE id = $1`,
+        [ids[i], minute],
+      );
     }
     const session = await startSession(owner);
     expect(session.docs).toBe(40);
@@ -143,10 +152,14 @@ describe("bootstrap download", () => {
     expect(order.length).toBe(40); // exactly once — no repeats across the cut
     expect(new Set(order).size).toBe(40);
     expect([...seen.keys()].sort()).toEqual([...ids].sort());
-    // Path order, so a folder's notes land together and the tree fills top-down.
-    expect(order.map((id) => seen.get(id)!.relPath)).toEqual(
-      [...order.map((id) => seen.get(id)!.relPath)].sort(),
-    );
+    // Most recently edited first: the notes someone is likeliest to open arrive
+    // before the archive. Equal timestamps fall back to path order.
+    const expected = [
+      ...Array.from({ length: 20 }, (_, k) => 39 - k), // n39 … n20
+      ...Array.from({ length: 10 }, (_, k) => 10 + k), // n10 … n19 (tie → path order)
+      ...Array.from({ length: 10 }, (_, k) => 9 - k), // n09 … n00
+    ].map((i) => `n${String(i).padStart(2, "0")}.md`);
+    expect(order.map((id) => seen.get(id)!.relPath)).toEqual(expected);
   });
 
   it("resuming from a cursor is byte-identical to draining in one go", async () => {
@@ -253,6 +266,8 @@ describe("bootstrap download", () => {
     const big = await seedNote(vault, null, "b-big.md", owner.userId);
     await writeDoc(small, "tiny");
     await writeDoc(big, "L".repeat(50_000));
+    // Same edit time, so path order decides which ships first.
+    await pool.query(`UPDATE notes SET last_edited_at = timestamptz '2026-01-01' WHERE id = ANY($1)`, [[small, big]]);
     const session = await startSession(owner);
     const { seen, order, pages } = await drain(owner, vault, session.sessionId, 1000);
     expect(pages).toBe(2);

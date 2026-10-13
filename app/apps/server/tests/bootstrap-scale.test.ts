@@ -102,9 +102,13 @@ describe("bootstrap at 5,000 docs", () => {
         cursor,
         onQuery: () => queries++,
       });
-      perPageQueries.push(queries);
       gzipBytes += page.body.length;
-      for (const d of decodeBootstrapPage(gunzipSync(page.body))) {
+      const docs = decodeBootstrapPage(gunzipSync(page.body));
+      // A doc-less terminal page (5,000 is an exact multiple of the page
+      // size) stops after the session check and keyset read.
+      if (docs.length > 0) perPageQueries.push(queries);
+      else expect(queries).toBeLessThanOrEqual(2);
+      for (const d of docs) {
         expect(seen.has(d.docId)).toBe(false); // exactly once
         seen.add(d.docId);
       }
@@ -115,8 +119,8 @@ describe("bootstrap at 5,000 docs", () => {
     const drainMs = Date.now() - t1;
 
     expect(seen.size).toBe(DOCS);
-    // 5 statements a page — session check, keyset read, snapshots, updates,
-    // paths — no matter how many docs the page carried.
+    // 5 statements a non-empty page — session check, keyset read, snapshots,
+    // updates, paths — no matter how many docs the page carried.
     expect(new Set(perPageQueries)).toEqual(new Set([5]));
     expect(pages).toBeLessThanOrEqual(Math.ceil(DOCS / config.bootstrapMaxPageDocs) + 4);
 

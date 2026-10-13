@@ -128,7 +128,8 @@ export async function createBootstrapSession(input: CreateSessionInput): Promise
 
   // ONE statement does both halves of the split:
   //   · the data-modifying CTE inserts the DOWNLOAD set (stored bytes > 0),
-  //     numbered densely in path order;
+  //     numbered densely newest-edited first (path order breaks ties), so the
+  //     notes someone is most likely to open arrive first;
   //   · the outer SELECT returns the UPLOAD set (readable notes the server holds
   //     nothing for), which the client seeds from its own disk.
   // Splitting them would compute `sized` twice, and — since the two are
@@ -138,6 +139,7 @@ export async function createBootstrapSession(input: CreateSessionInput): Promise
           sized AS (
             SELECT n.id AS doc_id,
                    n.rel_path,
+                   COALESCE(n.last_edited_at, n.updated_at) AS recency,
                    COALESCE(octet_length(s.snapshot), 0)
                      + COALESCE((SELECT sum(octet_length(u.update))
                                    FROM doc_updates u WHERE u.doc_id = n.id), 0) AS bytes
@@ -148,7 +150,7 @@ export async function createBootstrapSession(input: CreateSessionInput): Promise
           ins AS (
             INSERT INTO bootstrap_session_docs (session_id, seq, doc_id, bytes)
             SELECT $1,
-                   row_number() OVER (ORDER BY rel_path COLLATE "C", doc_id),
+                   row_number() OVER (ORDER BY recency DESC NULLS LAST, rel_path COLLATE "C", doc_id),
                    doc_id,
                    bytes
               FROM sized

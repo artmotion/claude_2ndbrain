@@ -219,7 +219,7 @@ export const config = {
    * 6 MB note is legitimate and must still reach a joiner.
    */
   bootstrapMaxPageBytes: int("BOOTSTRAP_MAX_PAGE_BYTES", 4 * 1024 * 1024),
-  bootstrapMaxPageDocs: int("BOOTSTRAP_MAX_PAGE_DOCS", 256),
+  bootstrapMaxPageDocs: int("BOOTSTRAP_MAX_PAGE_DOCS", 100),
   /** Concurrent page builds across the whole process. Past it a GET answers
    *  503 + `Retry-After` with code `bootstrap_busy` — backpressure the client
    *  can obey, rather than an OOM every joiner shares. */

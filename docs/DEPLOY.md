@@ -218,7 +218,7 @@ confirm `/health` and a real sync round-trip, then promote.
 | `BATCH_MAX_DOCS` | no | `100` | Items one `POST /api/vaults/:id/docs/batch` (CRDT content push) may carry. |
 | `BATCH_MAX_DECODED_BYTES` | no | `4194304` | Total **decoded** update bytes one `docs/batch` may carry (4 MiB). The route also takes a 16 MB body limit; this is the heap bound behind it. |
 | `BOOTSTRAP_MAX_PAGE_BYTES` | no | `4194304` | Byte budget for one bootstrap page (4 MiB). A single doc larger than a page ships alone rather than being refused. |
-| `BOOTSTRAP_MAX_PAGE_DOCS` | no | `256` | Doc budget for one bootstrap page, for a vault of many tiny notes. |
+| `BOOTSTRAP_MAX_PAGE_DOCS` | no | `100` | Doc budget for one bootstrap page (docs download newest-edited first). |
 | `BOOTSTRAP_CONCURRENCY` | no | `4` | Bootstrap pages built at once across this instance. Past it a page request answers 503 + `Retry-After` (`bootstrap_busy`). Raise only alongside the container's memory: a page is merged and gzipped in heap before a byte is sent. |
 | `BOOTSTRAP_TTL_HOURS` | no | `24` | How long a bootstrap session's materialised doc list stays valid. Past it a page request answers 410 `session_expired` and the client re-POSTs with a fresh `have`. |
 | `BLOB_STORAGE` | no | `postgres` | Where attachment BYTES live: `postgres` (zero config) or `s3`. See [Attachments storage](#attachments-storage). An unrecognised value, or `s3` with an incomplete bucket config, is a fatal startup error. |
