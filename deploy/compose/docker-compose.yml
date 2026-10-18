@@ -24,7 +24,12 @@ x-server-env: &server-env
   NODE_ENV: production
   # Compose resolves this against the postgres service below, on the internal
   # network — Postgres is never published to the host.
-  DATABASE_URL: postgres://secondbrain:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/secondbrain
+  # The password travels in PGPASSWORD, NOT inside the URL: node-postgres
+  # parses DATABASE_URL as a URL, so a password with `/`, `+`, `=`, `@` or `#`
+  # (e.g. from `openssl rand -base64`) crashed every connection with
+  # "Invalid URL". pg reads PGPASSWORD when the URL carries no password.
+  DATABASE_URL: postgres://secondbrain@postgres:5432/secondbrain
+  PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
   JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env — openssl rand -base64 32}
   BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set BETTER_AUTH_URL in .env — the public https URL clients reach}
   PORT: "3010"
