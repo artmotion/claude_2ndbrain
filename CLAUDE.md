@@ -850,6 +850,10 @@ billing variables (`POLAR_*`, `BILLING_MODEL`, `TEAM_*`, `ABUSE_MAX_*`, `FREE_MA
 
 ## Conventions & gotchas
 
+- **Owner preference: no Alpine images.** The owner does not want important software running on
+  musl (Alpine's C library). Whenever an Alpine-based image turns up (`*-alpine` tags, `FROM alpine`),
+  ASK the owner whether to switch to a Debian-based image (e.g. `postgres:16`,
+  `node:22-bookworm-slim`) instead of keeping or adding it silently.
 - **`doc_id` is identity.** Never resolve or store a note by path across layers.
 - **`rel_path` and `folder_id` must agree.** A note/file/folder's location is stored twice; the server
   derives or validates the parent from the path on every create and move
