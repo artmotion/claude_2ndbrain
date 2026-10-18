@@ -14,6 +14,7 @@ import {
   requireSupportedClient,
 } from "./client-version.js";
 import { oauthConnectRoutes } from "./routes/oauth-connect.js";
+import { adminRoutes } from "./routes/admin.js";
 import { accountPageRoutes } from "./routes/account-pages.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { createMemberShareRoutes, memberRoutes } from "./routes/members.js";
@@ -294,6 +295,8 @@ export function createApp(deps: AppDeps): Hono {
   app.route("/", oauthConnectRoutes);
   // Account pages the emails link to: forgot/reset password, email verified,
   // and the invitation landing page (bounces into the app's deep link).
+  // The owner's admin panel (account management; this fork has no sign-up).
+  app.route("/", adminRoutes);
   app.route("/", accountPageRoutes);
 
   // Clickable share links: https://<server>/open/note/… bounces into the app's

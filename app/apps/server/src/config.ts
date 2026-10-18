@@ -78,6 +78,9 @@ export const config = {
    *  in production (see {@link jwtSecret}). */
   jwtSecret: jwtSecret(),
   betterAuthUrl: required("BETTER_AUTH_URL", "http://localhost:3010"),
+  /** Password for the admin panel at /admin (routes/admin.ts). Unset or
+   *  shorter than 12 characters ⇒ the panel is off and /admin answers 404. */
+  adminPassword: optional("ADMIN_PASSWORD"),
   port: int("PORT", 3010),
   hocuspocusPort: int("HOCUSPOCUS_PORT", 3011),
   syncTokenTtlSeconds: int("SYNC_TOKEN_TTL_SECONDS", 600),

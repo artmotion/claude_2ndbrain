@@ -158,35 +158,15 @@ describe("password reset", () => {
     expect(await (await app.request("/oauth/login")).text()).toContain("/forgot-password");
   });
 
-  it("refuses a duplicate sign-up with a clear error and sends no second email", async () => {
-    await signUp("erin@verify.io");
-    const before = memoryOutbox.filter((m) => m.to === "erin@verify.io").length;
+  it("refuses self sign-up: accounts come from the admin panel only", async () => {
     const res = await post("/api/auth/sign-up/email", {
-      email: "Erin@verify.io",
+      email: "erin@verify.io",
       password: "another-password-1",
-      name: "Erin again",
+      name: "Erin",
     });
-    expect(res.status).toBe(422);
-    expect(await res.text()).toMatch(/already exists/i);
-    expect(memoryOutbox.filter((m) => m.to === "erin@verify.io")).toHaveLength(before);
-  });
-
-  it("sends a verification email on sign-up and the link verifies the address", async () => {
-    const bob = await signUp("bob@verify.io");
-    const mail = memoryOutbox.find((m) => m.to === "bob@verify.io" && /confirm/i.test(m.subject));
-    expect(mail).toBeDefined();
-    const link = mail!.text.match(/https?:\/\/\S+\/api\/auth\/verify-email\?\S+/)?.[0];
-    expect(link).toBeTruthy();
-
-    const url = new URL(link!);
-    const res = await app.request(`${url.pathname}${url.search}`, { redirect: "manual" });
-    // Better Auth redirects to our callback page after flipping the flag.
-    expect([302, 303, 307]).toContain(res.status);
-    expect(res.headers.get("location")).toContain("/email-verified");
-    const { rows } = await pool.query<{ emailVerified: boolean }>(
-      `SELECT "emailVerified" FROM "user" WHERE id = $1`,
-      [bob.userId],
-    );
-    expect(rows[0].emailVerified).toBe(true);
+    expect(res.status).toBe(400);
+    const { rows } = await pool.query(`SELECT 1 FROM "user" WHERE lower(email) = 'erin@verify.io'`);
+    expect(rows).toHaveLength(0);
+    expect(memoryOutbox.filter((m) => m.to === "erin@verify.io")).toHaveLength(0);
   });
 });

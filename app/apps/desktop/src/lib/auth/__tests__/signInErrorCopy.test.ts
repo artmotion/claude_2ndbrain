@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GOOGLE_NO_PASSWORD_HINT, signInErrorCopy } from "../signInErrorCopy";
+import { ACCOUNT_DISABLED_COPY, GOOGLE_NO_PASSWORD_HINT, NO_ACCOUNT_COPY, signInErrorCopy } from "../signInErrorCopy";
 
 describe("signInErrorCopy", () => {
   it("shows only the main sentence on the first failure", () => {
@@ -24,5 +24,12 @@ describe("signInErrorCopy", () => {
       message: "Network error",
       hint: null,
     });
+  });
+  it("explains a disabled account and a Google sign-in with no account", () => {
+    expect(signInErrorCopy("account_disabled", { googleEnabled: true, attempts: 0 })).toEqual({
+      message: ACCOUNT_DISABLED_COPY,
+      hint: null,
+    });
+    expect(signInErrorCopy("signup_disabled", { googleEnabled: true, attempts: 0 }).message).toBe(NO_ACCOUNT_COPY);
   });
 });

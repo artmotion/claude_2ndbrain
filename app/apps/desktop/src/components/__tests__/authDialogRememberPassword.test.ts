@@ -18,18 +18,17 @@ vi.mock("../../lib/useRememberedPassword", () => ({ useRememberedPassword: () =>
 let root: Root;
 let host: HTMLDivElement;
 const signIn = vi.fn();
-const signUp = vi.fn();
 const closed = vi.fn();
 const patch = (state: Record<string, unknown>) => (useStore as unknown as { setState: (state: Record<string, unknown>) => void }).setState(state);
 beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.resetAllMocks();
-  patch({ serverUrl: "https://notes.example.com", authStatus: "signed-out", authError: null, pendingServerLink: null, invitePrompt: null, signIn, signUp });
+  patch({ serverUrl: "https://notes.example.com", authStatus: "signed-out", authError: null, pendingServerLink: null, invitePrompt: null, signIn });
   host = document.createElement("div"); root = createRoot(host);
 });
 afterEach(() => act(() => root.unmount()));
-const render = async (initialMode: "sign-in" | "sign-up" = "sign-in") => {
-  await act(async () => root.render(createElement(AuthDialog, { onClose: closed, initialMode })));
+const render = async () => {
+  await act(async () => root.render(createElement(AuthDialog, { onClose: closed })));
 };
 const submit = async () => {
   await act(async () => document.body.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
@@ -50,12 +49,6 @@ it("never saves a rejected password", async () => {
   await render(); await submit();
   expect(saveRememberedPassword).not.toHaveBeenCalled();
   expect(closed).not.toHaveBeenCalled();
-});
-it("saves a successful sign-up password", async () => {
-  signUp.mockResolvedValue(undefined);
-  await render("sign-up"); await submit();
-  expect(signUp).toHaveBeenCalled();
-  expect(saveRememberedPassword).toHaveBeenCalledWith("https://notes.example.com", "ada@example.com", "valid-password");
 });
 it("reports keychain save failure without treating authentication as failed", async () => {
   signIn.mockImplementation(async () => patch({ authStatus: "signed-in" }));

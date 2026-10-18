@@ -131,6 +131,9 @@ describe("invitation emails + landing page", () => {
     // The inbox works for a password sign-up whose email is NOT verified —
     // the case Better Auth's own list-user-invitations refuses with 403.
     const tee = await signUp("Tee@inv3.io");
+    // Accounts made in the admin panel count as verified; force the legacy
+    // unverified state this assertion is about.
+    await pool.query(`UPDATE "user" SET "emailVerified" = false WHERE id = $1`, [tee.userId]);
     const { rows } = await pool.query<{ emailVerified: boolean }>(
       `SELECT "emailVerified" FROM "user" WHERE id = $1`,
       [tee.userId],

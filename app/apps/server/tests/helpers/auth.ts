@@ -1,3 +1,4 @@
+import { createUser } from "../../src/admin/accounts.js";
 import { auth } from "../../src/auth/auth.js";
 
 export interface TestUser {
@@ -13,14 +14,11 @@ export async function signUp(
   password = "password12345",
   name = email.split("@")[0],
 ): Promise<TestUser> {
-  const res = await auth.api.signUpEmail({
-    body: { email, password, name },
-    asResponse: true,
-  });
-  const token = res.headers.get("set-auth-token");
-  if (!token) throw new Error("signUp: no set-auth-token header");
-  const body = (await res.json()) as { user: { id: string } };
-  return { userId: body.user.id, email, token };
+  // No self sign-up in this fork: accounts are created the way the admin
+  // panel creates them (admin/accounts.ts), then signed in like a client.
+  const created = await createUser({ email, password, name });
+  const signedIn = await signIn(email, password);
+  return { userId: created.id, email, token: signedIn.token };
 }
 
 /** Sign in an existing user and return a fresh bearer token. */

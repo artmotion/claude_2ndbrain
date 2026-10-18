@@ -106,12 +106,6 @@ export class AuthManager {
     return this.init();
   }
 
-  async signUp(input: { email: string; password: string; name: string }): Promise<AuthUser> {
-    const { user, token } = await this.api.signUp(input);
-    if (token) await ipc.keychainSet(this.keychainKey(), token);
-    return user;
-  }
-
   async signIn(input: { email: string; password: string }): Promise<AuthUser> {
     const { user, token } = await this.api.signIn(input);
     if (token) await ipc.keychainSet(this.keychainKey(), token);

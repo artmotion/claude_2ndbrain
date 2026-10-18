@@ -2,7 +2,7 @@
 
 The server (`app/apps/server`) is a self-hostable Node + Postgres service: a Hono
 HTTP API and the Hocuspocus sync WebSocket, both served on a single public port.
-This guide covers running it with plain Docker (or Docker Compose) and Coolify.
+This guide covers running it with Docker Compose on your own machine (a PC, a NAS such as unraid), reachable from the internet through a Cloudflare Tunnel.
 Everything here is optional. The desktop app works fully offline with no server
 at all; a server adds multi-device sync and real-time collaboration.
 
@@ -21,179 +21,76 @@ Hocuspocus port directly, but nothing in this repo needs it reachable.
 > so folder structure synced while note content never uploaded (issue #79).
 > Update the app; no server change is needed.
 
-## Option A: plain Docker
+## Run it with Docker Compose
 
-The image is built from the repo root because the server is one workspace of
-a pnpm monorepo and needs the workspace root's `package.json` /
-`pnpm-lock.yaml` / `pnpm-workspace.yaml` to resolve its dependencies.
-
-### Build
+Everything lives in [`deploy/compose/`](../deploy/compose): Postgres 17, a
+one-shot migration job and the server, all on Debian-based images (no Alpine).
 
 ```bash
-docker build -f app/apps/server/Dockerfile -t secondbrain-server .
+cd deploy/compose
+cp .env.example .env    # POSTGRES_PASSWORD, JWT_SECRET, BETTER_AUTH_URL, ADMIN_PASSWORD
+docker compose up -d --build
+docker compose ps       # postgres + server: healthy
 ```
 
-### Run
+- **Data** lives in `data/` at the project root (git-ignored): `data/db_volume`
+  holds Postgres (notes, accounts, permissions and, by default, attachments),
+  `data/data_volume` holds MinIO's attachment bytes when you use the `minio`
+  profile. Override with `DB_VOLUME` / `DATA_VOLUME`. Back up `db_volume`.
+- **Port:** the server listens on 3010 inside the container; `PUBLIC_PORT`
+  picks the host port and `BIND_ADDR` the host address (default `127.0.0.1`).
+- **Updating:** `git pull && docker compose up -d --build`; migrations run
+  before the server starts.
 
-```bash
-docker run -p 3010:3010 \
-  -e DATABASE_URL=postgres://context:context@your-postgres-host:5432/context \
-  -e JWT_SECRET="$(openssl rand -base64 32)" \
-  -e BETTER_AUTH_URL=https://your-domain.example \
-  secondbrain-server
-```
+> **Postgres data is tied to the C library.** Text sort order comes from libc,
+> so a data directory created by one image family (e.g. the old Alpine/musl
+> images) must not be reused by another (Debian/glibc): text indexes could
+> silently return wrong results. Moving between families means
+> `pg_dump` → fresh `db_volume` → restore.
 
-Run migrations once before (or on) first boot:
+## Accounts: the admin panel
 
-```bash
-docker run --rm \
-  -e DATABASE_URL=postgres://context:context@your-postgres-host:5432/context \
-  -e JWT_SECRET="$(openssl rand -base64 32)" \
-  secondbrain-server node dist/db/migrate.js
-```
+There is no self sign-up. You create every account in the admin panel at
+`<BETTER_AUTH_URL>/admin`, and people then sign in from the desktop or iPad
+app.
 
-Migrations are idempotent (tracked in a `_migrations` table), so re-running
-them on every deploy is safe and a normal part of a redeploy flow.
+- Set `ADMIN_PASSWORD` (at least 12 characters) in `.env`. Without it the panel
+  is switched off and `/admin` answers 404. Read it back from the running
+  container with `docker compose exec server printenv ADMIN_PASSWORD`.
+- The panel lists users (vaults, last activity), creates users, sets a new
+  password (signing the user out everywhere), disables / re-enables an account
+  (a disabled account cannot sign in by any route, Google included), deletes
+  an account (refused while the user owns a vault) and adds a user to a vault
+  as member or admin.
+- Protection: constant-time password check, 5 failed logins per IP per
+  15 minutes, a signed HttpOnly `SameSite=Strict` cookie scoped to `/admin`
+  (12 hours; changing `ADMIN_PASSWORD` signs every admin session out), an
+  origin check on every form, no scripts on the page. It is reachable through
+  the tunnel like the API, so pick a long random password.
+- Google sign-in (optional) only signs in an account that already exists with
+  that email; it never creates one. Inviting an address that has no account
+  answers "no account on this server yet".
 
-### docker-compose
+## Reach it from the internet: Cloudflare Tunnel
 
-A minimal stack with Postgres and a one-shot migrate step before the server
-starts:
+A [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+gives the server a public HTTPS hostname without opening ports on your router.
+The desktop and iPad apps require HTTPS for anything but `localhost`, and the
+tunnel provides it.
 
-```yaml
-services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: context
-      POSTGRES_PASSWORD: context
-      POSTGRES_DB: context
-    volumes:
-      - secondbrain-postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U context"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+1. In the Cloudflare dashboard create a tunnel and a public hostname, e.g.
+   `notes.example.com` → service `http://server:3010` (when cloudflared runs in
+   this Compose stack) or `http://localhost:<PUBLIC_PORT>` (when it runs on the
+   host, e.g. unraid's Cloudflared plugin).
+2. Set `BETTER_AUTH_URL=https://notes.example.com` in `.env`.
+3. To run cloudflared inside the stack, put the tunnel's token in
+   `CLOUDFLARE_TUNNEL_TOKEN` and start with
+   `docker compose --profile tunnel up -d`.
+4. In the app, sign in with `https://notes.example.com` as the server (or bake
+   it into your builds with the `SERVER_URL` repository variable).
 
-  migrate:
-    build:
-      context: .
-      dockerfile: app/apps/server/Dockerfile
-    command: ["node", "dist/db/migrate.js"]
-    environment:
-      DATABASE_URL: postgres://context:context@postgres:5432/context
-      JWT_SECRET: change-me-32-bytes-minimum
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  server:
-    build:
-      context: .
-      dockerfile: app/apps/server/Dockerfile
-    ports:
-      - "3010:3010"
-    environment:
-      DATABASE_URL: postgres://context:context@postgres:5432/context
-      JWT_SECRET: change-me-32-bytes-minimum
-      BETTER_AUTH_URL: http://localhost:3010
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-volumes:
-  secondbrain-postgres:
-```
-
-Generate a real `JWT_SECRET` for anything beyond local testing:
-`openssl rand -base64 32`.
-
-## Option B: Coolify
-
-Coolify (and similar PaaS Docker Compose tools) run `docker compose` with the
-**repo root** as the project directory, not the directory the compose file
-lives in. That breaks [`deploy/compose/docker-compose.yml`](../deploy/compose)'s
-`build.context: ../..`, which assumes you run `cd deploy/compose && docker
-compose up` — Coolify instead resolves that path two directories *above* the
-repo root and the build fails with `lstat /app: no such file or directory`.
-
-[`deploy/coolify/docker-compose.yml`](../deploy/coolify) is the same stack
-(Postgres → migrate → server) with `build.context: .`, built for that project
-directory, and with no ports published — Coolify's own Traefik proxy
-terminates TLS and reaches the container on the internal network instead.
-Tested end-to-end on a live Coolify instance: build, all three services
-healthy, a custom domain with a real Let's Encrypt certificate, and the
-desktop app signing in and syncing through it.
-
-1. **New Resource → Docker Compose** (**Public Git Repository** works for a
-   public repo, no credentials needed), point it at this repository (or your fork).
-2. **Base Directory:** `/` (repo root) — this is what makes `context: .` in
-   the compose file resolve correctly.
-3. **Docker Compose Location:** `/deploy/coolify/docker-compose.yml`.
-4. Deploy — no env vars to fill in first. `POSTGRES_PASSWORD` and
-   `JWT_SECRET` come from Coolify's magic env vars
-   (`SERVICE_PASSWORD_64_POSTGRES`, `SERVICE_REALBASE64_64_JWT`);
-   `BETTER_AUTH_URL` resolves to a placeholder (`http://localhost:3010`) via
-   the compose file's own `:-` default, so the stack comes up on its own.
-   `migrate` must complete successfully before `server` starts, so a deploy
-   never briefly answers requests against an old schema. `server` also
-   declares Coolify's `SERVICE_FQDN_SERVER` magic env var, so a domain
-   (targeting its exposed port `3010`) is generated and assigned to it
-   automatically; if that doesn't happen, assign one by hand (Service →
-   `server`, Port → `3010`, Protocol → `https`, with the domain's DNS `A`
-   record already pointed at your Coolify server).
-5. Once it's up, set `BETTER_AUTH_URL` to the real domain from step 4
-   (`https://…`, no trailing slash, no port) in the `server` service's own
-   Environment Variables — not a global Coolify setting — and redeploy. Until
-   then, auth/invitation links point at the placeholder instead. The sync
-   WebSocket rides the same port at `/sync`, so nothing else needs routing.
-
-   Three Coolify-specific gotchas this file already works around — see
-   [`deploy/coolify/README.md`](../deploy/coolify/README.md#gotchas-we-hit-testing-this)
-   for the full detail if you're customizing it: `${VAR:?text}` means
-   "prefilled default", not "error message", unlike bash; an unset `${VAR}`
-   reaches the container as an **empty string**, which this server's own env
-   fallback does not catch (the default has to live in the compose file's
-   `${VAR:-default}`, not in app code); and a since-fixed Coolify bug
-   ([#11664](https://github.com/coollabsio/coolify/issues/11664), fixed in
-   **v4.3.19**) could corrupt a saved domain into a bare `https://`, aborting
-   every deploy with `The string 'https://' is no valid url.` — if you hit
-   that exact error, update Coolify.
-
-Full walkthrough and the differences from `deploy/compose`:
-[`deploy/coolify/README.md`](../deploy/coolify/README.md).
-
-## A staging instance
-
-Nothing in the server distinguishes staging from production — a staging instance
-is just **a second deployment of this same server with its own database**, set up
-exactly as above. Give it its own `DATABASE_URL`, its own `JWT_SECRET` (sharing
-one would let a token minted on either instance authenticate on the other) and a
-`BETTER_AUTH_URL` matching its own public URL.
-
-The desktop side picks it up at **build** time rather than at runtime. The
-frontend's `DEFAULT_SERVER_URL` (`app/apps/desktop/src/lib/api.ts`) honours a
-`VITE_SERVER_URL` inlined by Vite, and `.github/workflows/staging-release.yml`
-sets that from a repo Actions variable named `STAGING_SERVER_URL`, so the
-**2ndBrain Staging** app it publishes defaults to your staging instance with nothing
-for the tester to configure. See `docs/RELEASE.md` → *Staging*.
-
-Two consequences worth stating plainly:
-
-- **A published staging build reveals its server URL.** Vite inlines the value
-  into the JS bundle and the installer is a public prerelease asset, so anyone who
-  downloads it can read the URL out. A staging instance is internet-facing and
-  needs the same auth posture as a production one — it is not protected by being
-  hard to find.
-- **Vaults do not move between instances.** A vault's `.context/config.json`
-  binds that folder to one server's vault id and doc-id map, so a folder used
-  against staging must not also be opened against production. Use separate
-  folders, not separate accounts.
-
-Migrations are idempotent and tracked in `_migrations`, so a staging instance is
-also the natural place to run a new migration first: deploy the branch there,
-confirm `/health` and a real sync round-trip, then promote.
+Cloudflare passes the real client address in `CF-Connecting-IP`; the server's
+rate limits (sign-in, admin login) use it.
 
 ## Environment variables
 
@@ -202,7 +99,9 @@ confirm `/health` and a real sync round-trip, then promote.
 | `DATABASE_URL` | yes | `postgres://context:context@localhost:5439/context` | Postgres connection string. |
 | `PG_POOL_MAX` | no | `30` | Postgres connections this instance pools. Keep the total across all instances under the server's `max_connections`; a pool below `BACKFILL_CONCURRENCY` lets one vault reconnect starve the HTTP routes. |
 | `JWT_SECRET` | yes | dev-only insecure default | Better Auth crypto **and** sync JWT signing. Generate with `openssl rand -base64 32`. Rotating it invalidates all sessions and sync tokens. |
-| `BETTER_AUTH_URL` | yes | `http://localhost:3010` | Public base URL used for auth links (email verification, invitations). Must match the URL clients actually use. |
+| `BETTER_AUTH_URL` | yes | `http://localhost:3010` | Public base URL (your tunnel hostname, `https://…`) used for auth links (password reset, invitations). Must match the URL clients actually use. |
+| `ADMIN_PASSWORD` | for the admin panel | unset | Password for `/admin`, at least 12 characters. Unset or shorter ⇒ the panel is off (404). |
+| `CLOUDFLARE_TUNNEL_TOKEN` | for `--profile tunnel` | unset | Token of your Cloudflare Tunnel; only read by the optional `cloudflared` service in `deploy/compose`. |
 | `PORT` | no | `3010` | HTTP API port. Serves the sync WebSocket at `/sync` too. This is the only port a deployment needs to expose. |
 | `HOCUSPOCUS_PORT` | no | `3011` | Legacy dedicated Hocuspocus port, used in local dev and by older clients. Not required in production. |
 | `SYNC_TOKEN_TTL_SECONDS` | no | `600` | Per-doc sync JWT lifetime. |
@@ -250,7 +149,7 @@ including R2); Markdown retains portable attachment links rather than inline bin
 | `S3_MULTIPART_THRESHOLD_BYTES` | no | `104857600` | Where a single PUT becomes a presigned multipart upload (100 MB, AWS's own threshold). |
 | `S3_MULTIPART_PART_BYTES` | no | `16777216` | Bytes per multipart part (16 MB). Raised automatically if an object would need more than 10 000 parts. |
 | `DEEP_LINK_SCHEME` | no | `secondbrain` | URL scheme of the desktop app the server's pages bounce into. Set `secondbrain-staging` on the server behind the Staging app so production and staging links open the right app on a machine that has both. |
-| `EMAIL_FROM` | for email | unset | **Outbound email (optional).** Sender address, e.g. `2ndBrain <no-reply@example.com>`. With this and ONE transport below, password reset ("Forgot password?"), sign-up verification and invitation emails switch on. Unset ⇒ email off and none of those is offered (invitations are shared as a link instead). |
+| `EMAIL_FROM` | for email | unset | **Outbound email (optional).** Sender address, e.g. `2ndBrain <no-reply@example.com>`. With this and ONE transport below, password reset ("Forgot password?") and invitation emails switch on. Unset ⇒ email off and none of those is offered (invitations are shared as a link instead). |
 | `SMTP_URL` | one transport | unset | Any SMTP server: `smtp://user:pass@host:587` (STARTTLS) or `smtps://user:pass@host:465` (TLS). |
 | `RESEND_API_KEY` | one transport | unset | [Resend](https://resend.com) API key — the HTTPS alternative to SMTP. |
 | `EMAIL_TRANSPORT` | no | inferred | Force `smtp` \| `resend` \| `log` \| `memory` instead of inferring from the credential set. `log` prints emails to stdout (local dev); `memory` is the test suite's; both are refused in production. |
@@ -458,18 +357,13 @@ things switch on together:
   into the app's sign-in card. Setting a new password signs out every other
   session. The request reports what happened — sent, no account for that
   address on this server, or the provider's error — rather than a neutral
-  "check your inbox" (sign-up already reveals whether an address is taken, so
-  the neutral answer protected nothing and hid wrong-server mistakes).
+  "check your inbox" (accounts belong to people the server owner created, and
+  naming a wrong-server mistake matters more than hiding which addresses exist).
   An account created through Google has no password; the same flow lets it set one.
-- **Sign-up verification** — a confirmation email on sign-up, recorded when the
-  link is clicked; the confirmation page bounces back into the app, which shows
-  the verified state under Account settings → Email without a reload (and offers
-  a resend). It does not gate sign-in yet (accounts created before this shipped
-  were never verified, and locking them out would be worse than the problem it
-  solves).
 - **Invitation emails** — inviting a teammate emails them a link to
   `<BETTER_AUTH_URL>/invite/<id>`, which opens the desktop app on that
-  invitation: sign in (or sign up) with the invited address and they land in the
+  invitation: sign in with the invited address (the account must exist; create it
+  in the admin panel first) and they land in the
   vault. Members says "Invitation emailed" only once the provider accepted the
   message; if it refused, the reason is shown with the link to share instead.
   Inviting an address that is already pending re-sends. A teammate who was

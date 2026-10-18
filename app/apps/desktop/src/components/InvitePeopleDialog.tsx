@@ -173,6 +173,11 @@ export function InvitePeopleDialog({ orgId, onClose, onInvited }: {
             <div key={r.email} className={`invite-notice${r.error ? " is-warning" : ""}`}>
               {r.emailed ? (
                 <span>Invitation emailed to {r.email}.</span>
+              ) : r.error === "no_account" ? (
+                <span>
+                  {r.email} has no account on this server yet. Create it in the server's admin
+                  panel first, then invite them again.
+                </span>
               ) : !r.invitationId ? (
                 <span>Couldn't invite {r.email}{r.error ? ` (${r.error})` : ""}.</span>
               ) : (

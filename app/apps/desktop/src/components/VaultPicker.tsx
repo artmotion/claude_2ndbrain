@@ -1041,8 +1041,6 @@ export function VaultPicker() {
       {signInOpen && !authPrompt && (
         <Suspense fallback={null}>
           <AuthDialog
-            // Someone arriving with a join code most likely has no account yet.
-            initialMode={signInFor === "join" ? "sign-up" : "sign-in"}
             // Success: for the "open" route, keep the pending open target — the
             // store's post-sign-in landing opens exactly that vault, so just
             // dismiss. For the "join" route the landing was suppressed on

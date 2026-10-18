@@ -266,23 +266,6 @@ function ProfileTab() {
   const trimmedName = name.trim();
   const trimmedImage = image.trim();
 
-  // Re-sending the confirmation email: its own tiny state so a failure (this
-  // server has no email; the provider refused) is said next to the button.
-  const [resendBusy, setResendBusy] = useState(false);
-  const [resendState, setResendState] = useState<string | null>(null);
-  const resendConfirmation = async () => {
-    setResendBusy(true);
-    setResendState(null);
-    try {
-      await useStore.getState().resendVerificationEmail();
-      setResendState("sent");
-    } catch (e) {
-      setResendState(e instanceof Error ? e.message : String(e));
-    } finally {
-      setResendBusy(false);
-    }
-  };
-
   return (
     <div className="account-profile">
       {/* The picture is chosen right where it's shown: upload / reset beside
@@ -324,33 +307,9 @@ function ProfileTab() {
         />
       </label>
 
-
       <label className="field">
         <span className="field-label">Email</span>
         <input value={session.user.email} disabled readOnly />
-        {/* Verification state, live: the confirmation link bounces back into
-            the app (`secondbrain://verified`), which re-reads the session, so this
-            flips without a reload. `emailVerified` is absent on very old
-            servers — say nothing rather than "not confirmed" then. */}
-        {session.user.emailVerified === true && (
-          <span className="field-hint">Email confirmed ✓</span>
-        )}
-        {session.user.emailVerified === false && (
-          <span className="field-hint">
-            Not confirmed yet — check your inbox for the confirmation email.{" "}
-            <button
-              type="button"
-              className="linkish"
-              disabled={resendBusy}
-              onClick={() => void resendConfirmation()}
-            >
-              {resendBusy ? "Sending…" : resendState === "sent" ? "Sent ✓" : "Resend it"}
-            </button>
-            {resendState && resendState !== "sent" && (
-              <span className="update-status error"> {resendState}</span>
-            )}
-          </span>
-        )}
       </label>
 
       {error && <div className="auth-error">{error}</div>}

@@ -2,7 +2,7 @@
 // presence → locks). Env-gated like integration.test.ts: needs the real server
 // on :3010 (+ Docker Postgres, migrated).
 //
-//   CONTEXT_IT=1 pnpm --filter desktop test -- multiuser
+//   CONTEXT_IT=1 CONTEXT_ADMIN_PASSWORD=<server ADMIN_PASSWORD> pnpm --filter desktop test -- multiuser
 //
 // This drives the REAL client modules end-to-end against a live server:
 //  - ApiClient      auth, org invitations, registry, shares, tokens
@@ -15,6 +15,7 @@
 //  - VaultSyncEngine the always-on background feed: a member receives note
 //                   content without opening the note; ACL-change signal fires
 
+import { createLiveAccount } from "./liveAccounts";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import * as Y from "yjs";
@@ -118,7 +119,7 @@ afterAll(() => {
 describe.skipIf(!RUN)("multi-user collaboration (live server)", () => {
   beforeAll(async () => {
     // Owner signs up, creates the org and its server vault + content registry.
-    const a = await owner.signUp({
+    const a = await createLiveAccount(SERVER, owner, {
       email: `mu-owner-${stamp}@it.test`,
       password: "password123",
       name: "Olivia Owner",
@@ -160,7 +161,7 @@ describe.skipIf(!RUN)("multi-user collaboration (live server)", () => {
 
   // ── 1. Invite → accept ────────────────────────────────────────────────────
   it("owner invites; member accepts and lands in the vault", async () => {
-    await member.signUp({
+    await createLiveAccount(SERVER, member, {
       email: `mu-member-${stamp}@it.test`,
       password: "password123",
       name: "Riley Member",
@@ -426,7 +427,7 @@ describe.skipIf(!RUN)("multi-user collaboration (live server)", () => {
 
   // ── 8. Outsiders stay out ─────────────────────────────────────────────────
   it("a signed-in non-member gets no registry access and no sync token", async () => {
-    await outsider.signUp({
+    await createLiveAccount(SERVER, outsider, {
       email: `mu-outsider-${stamp}@it.test`,
       password: "password123",
       name: "Oscar Outsider",

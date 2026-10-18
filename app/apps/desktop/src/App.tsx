@@ -1012,9 +1012,6 @@ function PromptedAuthDialog() {
   return (
     <Suspense fallback={null}>
       <AuthDialog
-        // An invitee usually has no account yet — the link is often the first
-        // time they hear of us — so the invite card opens on sign-up.
-        initialMode={authPrompt === "invite" ? "sign-up" : "sign-in"}
         onSignedIn={() => useStore.getState().setAuthPrompt(null)}
         onClose={() => {
           clearPendingNoteLink();

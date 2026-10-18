@@ -6,8 +6,7 @@ import pg from "pg";
 import { config } from "../config.js";
 import { BRAND_NAME } from "../brand.js";
 import { announceMemberJoined, announceMemberRemoved, announceOrgChanged } from "../sync/member-events.js";
-import { dispatchMail, emailEnabled } from "../email/mailer.js";
-import { verifyEmailEmail } from "../email/templates.js";
+import { emailEnabled } from "../email/mailer.js";
 import { clearThrottle } from "./signin-throttle.js";
 import { isValidVaultIcon } from "./vault-icon.js";
 import { isValidProfileImage } from "./profile-image.js";
@@ -52,6 +51,9 @@ const socialProviders = googleEnabled
       google: {
         clientId: config.googleClientId!,
         clientSecret: config.googleClientSecret!,
+        // No self sign-up in this fork: Google signs in an account the admin
+        // created (linked by email below), but never creates one.
+        disableImplicitSignUp: true,
       },
     }
   : undefined;
@@ -102,6 +104,9 @@ export const auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
+    // Accounts are created by the server owner in the admin panel
+    // (admin/accounts.ts, routes/admin.ts); POST /sign-up/email answers 400.
+    disableSignUp: true,
     // No email round-trip is required to sign in, even when email is configured:
     // verification is sent on sign-up (below) and recorded when the link is
     // clicked, but it doesn't gate anything yet — existing accounts were all
@@ -132,22 +137,6 @@ export const auth = betterAuth({
       await clearThrottle(user.email);
     },
   },
-  ...(mailerOn
-    ? {
-        emailVerification: {
-          // Sent on sign-up; clicking marks `emailVerified` and lands on our
-          // branded confirmation page. Soft for now (see requireEmailVerification).
-          sendOnSignUp: true,
-          sendVerificationEmail: async ({ user, token }: { user: { email: string }; token: string }) => {
-            const callback = `${config.betterAuthUrl}/email-verified`;
-            const url = `${config.betterAuthUrl}/api/auth/verify-email?token=${encodeURIComponent(
-              token,
-            )}&callbackURL=${encodeURIComponent(callback)}`;
-            dispatchMail("email verification", verifyEmailEmail({ to: user.email, url }));
-          },
-        },
-      }
-    : {}),
   ...(socialProviders ? { socialProviders } : {}),
   account: {
     // Identity is the email: signing in with Google links to an existing
@@ -202,6 +191,21 @@ export const auth = betterAuth({
     }),
   },
   databaseHooks: {
+    // A disabled account (admin panel) cannot start a session by ANY route:
+    // password, Google, or a password reset's auto sign-in.
+    session: {
+      create: {
+        before: async (session) => {
+          const { rows } = await authPool.query<{ disabled_at: Date | null }>(
+            `SELECT disabled_at FROM "user" WHERE id = $1`,
+            [session.userId],
+          );
+          if (rows[0]?.disabled_at) {
+            throw new APIError("FORBIDDEN", { message: "account_disabled", error: "account_disabled" });
+          }
+        },
+      },
+    },
     user: {
       update: {
         before: async (user) => {

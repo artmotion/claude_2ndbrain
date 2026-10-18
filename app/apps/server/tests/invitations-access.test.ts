@@ -69,6 +69,8 @@ describe("invitations with access", () => {
   });
 
   it("creates deduped invitations, remembers access and emails each", async () => {
+    await signUp("a@inv-access.test");
+    await signUp("b@inv-access.test");
     const res = await inviteMany(owner, orgId, {
       emails: ["A@inv-access.test", "a@inv-access.test ", "b@inv-access.test"],
       role: "member",
@@ -88,6 +90,13 @@ describe("invitations with access", () => {
     expect(invited.length).toBe(2);
   });
 
+  it("answers no_account for an address with no account (no self sign-up)", async () => {
+    const res = await inviteMany(owner, orgId, { emails: ["nobody@inv-access.test"], role: "member", access: null });
+    expect(res.status).toBe(200);
+    const { results } = (await res.json()) as InviteResponse;
+    expect(results).toEqual([{ email: "nobody@inv-access.test", emailed: false, error: "no_account" }]);
+  });
+
   it("validates the body and gates on owner/admin", async () => {
     expect((await inviteMany(owner, orgId, { emails: [], role: "member", access: null })).status).toBe(400);
     expect((await inviteMany(owner, orgId, { emails: ["nope"], role: "member", access: null })).status).toBe(400);
@@ -98,6 +107,7 @@ describe("invitations with access", () => {
 
     const admin = await signUp("admin@inv-access.test");
     await seedMember(orgId, admin.userId, "admin");
+    await signUp("x@y.zz");
     const ok = await inviteMany(admin, orgId, { emails: ["x@y.zz"], role: "admin", access: null });
     expect(ok.status).toBe(200);
 
@@ -106,6 +116,8 @@ describe("invitations with access", () => {
     expect((await inviteMany(member, orgId, { emails: ["z@y.zz"], role: "member", access: null })).status).toBe(403);
 
     // No seat cap: more invitations always go out.
+    await signUp("q@y.zz");
+    await signUp("r@y.zz");
     const more = await inviteMany(owner, orgId, { emails: ["q@y.zz", "r@y.zz"], role: "member", access: null });
     expect(more.status).toBe(200);
     const body = (await more.json()) as InviteResponse;

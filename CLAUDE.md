@@ -13,30 +13,12 @@ edit together in real time. Every OSS competitor does one or the other; the whol
 
 Three pieces; this open-source repo holds the first two.
 
-- **Desktop app** (`app/apps/desktop`) — the product people install. Released by a
-  version bump: bump `tauri.conf.json` (+ the other three files) and merge to `main` —
-  `.github/workflows/release.yml`'s `gate` job releases only when that version changed
-  (a `v*` tag still forces one). It builds installers for **macOS (arm64 + x64),
-  Linux x64 and Windows x64**, and **publishes** a GitHub Release with `latest.json`.
-  Only macOS is OS-signed (Developer ID + notarized + stapled); Linux/Windows ship
-  unsigned, so fresh downloads warn (SmartScreen) — auto-update is unaffected everywhere
-  because the updater checks our minisign signature, not an OS certificate.
-  There is no draft/review gate — pushing a `v*` tag ships to every running app on its next
-  updater poll (Tauri updater polls `releases/latest`).
-  The server deploys in minutes but the release's four serial platform jobs publish `latest.json`
-  piecemeal, so a vault-channel `version-available` hint (the primary trigger; the 15-min poll is the
-  fallback) that finds no update, a `latest.json` missing this platform, or a 404 bundle parks the
-  updater in `pending` ("An update is on its way" in About) and retries at 2/4/8 min, capped at the poll,
-  for 60 min (`lib/updater.ts`) — never an error or the wall; a bad signature stays a real error. Raise
-  `MIN_CLIENT_VERSION` at least one release AFTER the build it needs; as a backstop, for
-  `MIN_CLIENT_VERSION_GRACE_MINUTES` (60) after boot a raised floor only refuses builds below 0.1.49.
-  Because of that, review happens *before* main: PRs target the long-lived **`staging`** branch,
-  and every push to it runs `.github/workflows/staging-release.yml`, which publishes a separate
-  auto-updating **"2ndBrain Staging"** app (`com.artmotion.secondbrain.staging`, version
-  `<base>-staging.<run#>`, server from the `STAGING_SERVER_URL` Actions variable) into one rolling
-  GitHub *prerelease* tagged `staging` — invisible to production's updater, which resolves
-  `releases/latest` and so skips prereleases. Promotion is a fast-forward `staging` → `main` plus
-  the four-file version bump; see `docs/RELEASE.md` → Staging.
+- **Desktop app** (`app/apps/desktop`) — the product people install. No signed release pipeline or
+  staging channel: `.github/workflows/windows-build.yml` builds unsigned Windows installers on every
+  push to `main` (and the working branch) into the rolling `windows-dev` prerelease, with updater
+  artifacts switched off (`src-tauri/tauri.ci.conf.json`) until the fork has its own minisign key.
+  The app version lives in four files (`tauri.conf.json`, desktop `package.json`, `Cargo.toml`,
+  `Cargo.lock`). See `docs/RELEASE.md`. The updater code (`lib/updater.ts`) stays, dormant.
 - **Backend server** (`app/apps/server`) — open source and self-hostable (Node + Postgres).
   This fork offers **no hosted service**: the owner self-hosts it with Docker (`deploy/compose/`).
   A desktop build carries its server through `VITE_SERVER_URL` (`lib/api.ts DEFAULT_SERVER_URL`,
@@ -45,6 +27,16 @@ Three pieces; this open-source repo holds the first two.
   always be changed in Account Settings → Connection. The brand name is configurable too:
   `VITE_BRAND_NAME` (desktop, `lib/brand.ts`) and `BRAND_NAME` (server env, `src/brand.ts`).
   Self-host/deploy guide: `docs/DEPLOY.md`.
+  **No self sign-up** (2026-10-18): accounts are created by the owner in the server's **admin
+  panel** at `/admin` (`http/routes/admin.ts`, logic in `admin/accounts.ts`): list, create, set
+  password, disable/enable (`user.disabled_at`, migration 057; a `session.create` database hook in
+  `auth/auth.ts` refuses disabled accounts by every route), delete (refused while the user owns a
+  vault) and add to a vault. It is off unless `ADMIN_PASSWORD` (≥12 chars) is set; login is
+  rate-limited per IP, the session is a signed HttpOnly SameSite=Strict cookie scoped to `/admin`,
+  and every form is origin-checked. Better Auth runs with `emailAndPassword.disableSignUp` and
+  Google `disableImplicitSignUp` (Google only signs in existing accounts). Inviting an address
+  with no account answers `no_account`. The desktop/iPad have no sign-up UI; tests create users
+  through `admin/accounts.ts createUser` (`tests/helpers/auth.ts signUp`).
   **Billing was removed from this fork** (2026-10-13): no plans, seats, quotas or 402 limit
   refusals anywhere; every server behaves as the old billing-disabled self-host (unlimited, the
   Assistant and standalone-file sync always on). Migration 056 drops the billing tables; the older
@@ -115,7 +107,7 @@ Prereqs: Node ≥ 22, Rust/cargo, Docker (for Postgres). Run `pnpm install` once
 **Server** (from `app/apps/server/`):
 ```bash
 cp .env.example .env      # change JWT_SECRET for anything real
-pnpm run db:up            # Postgres 16 in Docker, host port 5439
+pnpm run db:up            # Postgres 17 (Debian image) in Docker, host port 5439
 pnpm run migrate          # apply migrations/*.sql in order
 pnpm run dev              # tsx watch; HTTP :3010, Hocuspocus WS :3011, GET /health
 ```

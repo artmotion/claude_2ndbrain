@@ -190,6 +190,8 @@ describe("members overview", () => {
 
   it("lists pending invitations with createdAt and chosen access", async () => {
     const { owner, orgId } = await setup();
+    await signUp("new@members.test");
+    await signUp("plain@members.test");
     const res = await app.request(`/api/orgs/${orgId}/invitations`, {
       method: "POST",
       headers: authHeaders(owner),

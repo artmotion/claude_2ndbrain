@@ -735,7 +735,6 @@ interface AppStore {
   initAuth: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   /**
    * The server has told us our session is gone, mid-run — a 30-day session that
@@ -813,8 +812,6 @@ interface AppStore {
   /** Invite into the active vault, or into `organizationId` when given (the
    *  Activity feed's Resend names the vault the notice belongs to). */
   inviteMember: (email: string, role: "member" | "admin", organizationId?: string) => Promise<InviteResult>;
-  /** Re-send the sign-up confirmation email to the signed-in address. */
-  resendVerificationEmail: () => Promise<void>;
   /**
    * A `secondbrain://verified` / `secondbrain://signin` hand-off arrived from one of the
    * server's account pages: re-read the session so the app reflects what just
@@ -3254,51 +3251,6 @@ export const useStore = create<AppStore>((set, get) => ({
     }
   },
 
-  signUp: async (name, email, password) => {
-    set({ authError: null });
-    // This flow owns the session from here: a detached `initAuth` still
-    // restoring the previous one must not land its state on top of ours.
-    ++authInitGen;
-    try {
-      await authManager.signUp({ name, email, password });
-      const session = await authManager.currentSession();
-      set({ session, authStatus: session ? "signed-in" : "signed-out" });
-      if (session) {
-        await get().refreshVault();
-        // The commonest invite case by far: the invitee had no account, so they
-        // sign UP from the invite card. Accepting is the landing — and it also
-        // stops `landInLastVault` from inventing a private "My Vault" first,
-        // which is what made joining a team look like starting alone.
-        const joined = peekPendingInvite() != null && (await consumeQueuedInvite(get, set));
-        if (!joined) {
-          // A brand-new account has nothing to restore, so this is what actually
-          // creates their first vault and opens it. Sign-up used to skip landing
-          // entirely, which is why signing up from the welcome screen returned you
-          // to the welcome screen.
-          await landInLastVault(get);
-        }
-        if (!joined) await get().openWelcomeIfPresent();
-        await consumeQueuedNoteLink(get);
-        // The dialog closes the instant the session lands, so this is the only
-        // place the person hears that a confirmation email went out. Raised
-        // AFTER landing, because <Toasts /> only mounts once a vault is open —
-        // raised earlier it would tick down unseen. Only when the server can
-        // send email at all; otherwise nothing was sent and there is nothing to
-        // say.
-        const methods = await authManager.api.getAuthMethods();
-        if (methods.passwordReset && session.user.emailVerified === false) {
-          toast(
-            `Account created. We sent a confirmation email to ${session.user.email} — click its link to confirm your address.`,
-            "neutral",
-          );
-        }
-      }
-    } catch (e) {
-      set({ authError: errMsg(e) });
-      throw e;
-    }
-  },
-
   signOut: async () => {
     // This flow owns the session from here: a detached `initAuth` still
     // restoring the previous one must not land its state on top of ours.
@@ -4069,12 +4021,6 @@ export const useStore = create<AppStore>((set, get) => ({
     // THIS invitation's id to build its link, and the roster list is keyed by
     // email with no promise about which row is the one just created.
     return { invitation, emailed, emailError };
-  },
-
-  resendVerificationEmail: async () => {
-    const email = get().session?.user.email;
-    if (!email) throw new Error("Not signed in");
-    await authManager.api.sendVerificationEmail(email);
   },
 
   handleAccountLink: async (kind) => {

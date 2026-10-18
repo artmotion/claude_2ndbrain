@@ -429,7 +429,19 @@ memberRoutes.post("/orgs/:orgId/invitations", async (c) => {
 
   const canEmail = emailEnabled();
   const results: InviteResult[] = [];
+  // No self sign-up in this fork: an invitation can only be accepted by an
+  // account the server owner created in the admin panel, so an address with no
+  // account is answered `no_account` instead of becoming a dead invitation.
+  const known = await pool.query<{ email: string }>(
+    `SELECT lower(email) AS email FROM "user" WHERE lower(email) = ANY($1::text[])`,
+    [emails.map((e) => e.toLowerCase())],
+  );
+  const hasAccount = new Set(known.rows.map((r) => r.email));
   for (const email of emails) {
+    if (!hasAccount.has(email.toLowerCase())) {
+      results.push({ email, emailed: false, error: "no_account" });
+      continue;
+    }
     try {
       const inv = (await auth.api.createInvitation({
         body: { email, role, organizationId: orgId },

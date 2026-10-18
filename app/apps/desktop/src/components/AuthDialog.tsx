@@ -52,14 +52,13 @@ function GoogleGlyph() {
 }
 
 /**
- * Focused sign-in / sign-up modal; closes itself once a session lands. When a
+ * Focused sign-in modal; closes itself once a session lands. When a
  * caller needs to act on a *successful* sign-in (vs. a cancel), it passes
  * `onSignedIn` — fired instead of `onClose` when the session arrives, so the
  * two outcomes stay distinguishable.
  *
- * `initialMode` picks which tab opens first. It defaults to sign-in, but the
- * welcome screen's "Join a team" route opens on sign-up: someone holding a
- * teammate's join code is usually here for the first time.
+ * There is no sign-up: accounts are created by the server owner in the
+ * server's admin panel (/admin), and this card only signs them in.
  *
  * THREE STEPS, not one. There is no hosted service, so before this dialog will
  * take a password it needs to know which server the account belongs to:
@@ -74,11 +73,9 @@ function GoogleGlyph() {
 export function AuthDialog({
   onClose,
   onSignedIn,
-  initialMode = "sign-in",
 }: {
   onClose: () => void;
   onSignedIn?: () => void;
-  initialMode?: "sign-in" | "sign-up";
 }) {
   const authStatus = useStore((s) => s.authStatus);
   const authError = useStore((s) => s.authError);
@@ -92,12 +89,7 @@ export function AuthDialog({
   // "reset" is a third mode, not a separate dialog: it needs the same server
   // context, the same error slot and the same close behaviour, and someone who
   // remembers their password mid-way has to be able to step back to sign-in.
-  const [mode, setMode] = useState<"sign-in" | "sign-up" | "reset">(
-    // An invitee usually has no account yet, so the invite card opens on
-    // sign-up whatever the caller asked for.
-    invitePrompt ? "sign-up" : initialMode,
-  );
-  const [name, setName] = useState("");
+  const [mode, setMode] = useState<"sign-in" | "reset">("sign-in");
   // Invitation, then whatever this device was asked to remember, then the
   // dev-only test account; production builds with nothing remembered ship an
   // empty field (`initialEmail` holds that order of authority).
@@ -188,11 +180,10 @@ export function AuthDialog({
   }, [pendingServerLink]);
 
   // An invitation can likewise land on an already-open card (the person was
-  // mid-sign-in when they clicked the link). Adopt its address and open on
-  // sign-up, same as if it had raised the card itself.
+  // mid-sign-in when they clicked the link). Adopt its address.
   useEffect(() => {
     if (!invitePrompt) return;
-    setMode("sign-up");
+    setMode("sign-in");
     setEmail(invitePrompt.email);
   }, [invitePrompt?.id]);
 
@@ -275,27 +266,16 @@ export function AuthDialog({
     e.preventDefault();
     setBusy(true);
     try {
-      if (mode === "sign-in") {
-        try {
-          await useStore.getState().signIn(email.trim(), password);
-          setLockedUntil(null);
-        } catch (err) {
-          const wait = signInRetryAfter(err);
-          if (wait != null) {
-            setNow(Date.now());
-            setLockedUntil(Date.now() + wait * 1000);
-            throw err;
-          }
-          // Dev convenience: the prefilled test account self-provisions on a
-          // fresh database instead of dead-ending on "User not found".
-          if (import.meta.env.DEV && email.trim() === "test@context.local") {
-            await useStore.getState().signUp("Test User", email.trim(), password);
-          } else {
-            throw err;
-          }
+      try {
+        await useStore.getState().signIn(email.trim(), password);
+        setLockedUntil(null);
+      } catch (err) {
+        const wait = signInRetryAfter(err);
+        if (wait != null) {
+          setNow(Date.now());
+          setLockedUntil(Date.now() + wait * 1000);
         }
-      } else {
-        await useStore.getState().signUp(name.trim(), email.trim(), password);
+        throw err;
       }
       // Only on the way out of a SUCCESSFUL attempt — a typo someone abandoned
       // is not an address worth handing back. A no-op while the switch is off.
@@ -309,7 +289,7 @@ export function AuthDialog({
     } catch {
       /* error surfaced via authError */
       const failed = useStore.getState().authError;
-      if (mode === "sign-in" && failed && isInvalidCredentials(failed)) {
+      if (failed && isInvalidCredentials(failed)) {
         const key = email.trim().toLowerCase();
         setFailedSignIns((m) => ({ ...m, [key]: (m[key] ?? 0) + 1 }));
       }
@@ -381,9 +361,7 @@ export function AuthDialog({
         ? `Connect to ${serverHost(pendingServerLink ?? serverUrl)}?`
         : mode === "reset"
           ? "Reset your password"
-          : mode === "sign-in"
-            ? "Welcome back"
-            : "Create your account";
+          : "Welcome back";
 
   return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
@@ -463,29 +441,11 @@ export function AuthDialog({
             {invitePrompt && (
               <p className="auth-invite-lede">
                 <strong>{invitePrompt.inviterName ?? "A teammate"}</strong> invited you to
-                join <strong>{invitePrompt.organizationName}</strong>. Sign in — or create an
-                account — with <strong>{invitePrompt.email}</strong> to accept.
+                join <strong>{invitePrompt.organizationName}</strong>. Sign in with{" "}
+                <strong>{invitePrompt.email}</strong> to accept. No account yet? Ask whoever
+                runs this server to create one for you.
               </p>
             )}
-            {mode !== "reset" && (
-              <div className="segmented">
-                <button
-                  className={mode === "sign-in" ? "active" : ""}
-                  onClick={() => setMode("sign-in")}
-                  type="button"
-                >
-                  Sign in
-                </button>
-                <button
-                  className={mode === "sign-up" ? "active" : ""}
-                  onClick={() => setMode("sign-up")}
-                  type="button"
-                >
-                  Sign up
-                </button>
-              </div>
-            )}
-
             {mode !== "reset" && googleAvailable && (
               <>
                 <button
@@ -567,15 +527,6 @@ export function AuthDialog({
               )
             ) : (
               <form onSubmit={submit} className="auth-form">
-                {mode === "sign-up" && (
-                  <input
-                    placeholder="Name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    autoComplete="name"
-                    required
-                  />
-                )}
                 <input
                   type="email"
                   placeholder="Email"
@@ -590,7 +541,7 @@ export function AuthDialog({
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={mode === "sign-in" ? "current-password" : "new-password"}
+                  autoComplete="current-password"
                   minLength={8}
                   required
                 />
@@ -668,12 +619,10 @@ export function AuthDialog({
               </div>
             )}
             {mode !== "reset" && authError && !signInLocked && (() => {
-              const copy = mode === "sign-in"
-                ? signInErrorCopy(authError, {
-                    googleEnabled: googleAvailable,
-                    attempts: failedSignIns[email.trim().toLowerCase()] ?? 0,
-                  })
-                : { message: authError, hint: null };
+              const copy = signInErrorCopy(authError, {
+                googleEnabled: googleAvailable,
+                attempts: failedSignIns[email.trim().toLowerCase()] ?? 0,
+              });
               return (
                 <div className="auth-error" role="alert">
                   {copy.message}
@@ -681,43 +630,6 @@ export function AuthDialog({
                 </div>
               );
             })()}
-            {/* Sign-up for an address that already has an account: the server
-                refuses (and sends nothing), but "User already exists" alone
-                leaves the person retyping. Offer the two exits. */}
-            {authError != null && mode === "sign-up" && /already exists/i.test(authError) && (
-              <p className="auth-hint">
-                An account with this email already exists.{" "}
-                <button
-                  type="button"
-                  className="linkish"
-                  onClick={() => {
-                    useStore.setState({ authError: null });
-                    setMode("sign-in");
-                  }}
-                >
-                  Sign in instead
-                </button>
-                {resetAvailable && (
-                  <>
-                    {" "}
-                    or{" "}
-                    <button
-                      type="button"
-                      className="linkish"
-                      onClick={() => {
-                        useStore.setState({ authError: null });
-                        setResetError(null);
-                        setResetSent(null);
-                        setMode("reset");
-                      }}
-                    >
-                      reset your password
-                    </button>
-                  </>
-                )}
-                .
-              </p>
-            )}
             {/* Which server this form is about to post to. An account is
                 per-server, so on a team that self-hosts this line is the
                 difference between joining your team and starting a private

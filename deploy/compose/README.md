@@ -4,18 +4,19 @@ One command, one machine you control, no vendor account.
 
 ```bash
 cd deploy/compose
-cp .env.example .env          # fill in POSTGRES_PASSWORD, JWT_SECRET, BETTER_AUTH_URL
-docker compose up -d
+cp .env.example .env          # fill in POSTGRES_PASSWORD, JWT_SECRET, BETTER_AUTH_URL, ADMIN_PASSWORD
+docker compose up -d --build
 ```
 
-Then in the desktop app: **account menu → Server settings →** your
-`BETTER_AUTH_URL` → **Save**. Create an account and you're synced.
+Then open `<BETTER_AUTH_URL>/admin`, sign in with `ADMIN_PASSWORD` and create
+the accounts (there is no self sign-up). In the desktop or iPad app, sign in
+with one of them and your `BETTER_AUTH_URL` as the server.
 
 ## What comes up
 
 | Service | What it does |
 | --- | --- |
-| `postgres` | Postgres 16, data in `data/db_volume` at the project root. Never published to the host. |
+| `postgres` | Postgres 17 (Debian), data in `data/db_volume` at the project root. Never published to the host. |
 | `migrate` | Runs `dist/db/migrate.js` to completion, *then* exits. |
 | `server` | Hono HTTP + Hocuspocus WS on **one** port (`3010`). |
 
@@ -27,29 +28,29 @@ answer requests against an old schema.
 so there is nothing else to open or route. The dedicated `HOCUSPOCUS_PORT` exists
 for local dev only.
 
-## TLS — read this before exposing it
+## HTTPS — through a Cloudflare Tunnel
 
-`server` binds to **127.0.0.1 by default**, on purpose. The API carries session
-tokens and note content, so it must not be served over plain HTTP across a
-network. Put a TLS terminator in front of it and let that reach port 3010:
+`server` binds to **127.0.0.1 by default**, on purpose: the API carries session
+tokens and note content, and the apps only talk plain HTTP to `localhost`.
+Expose it through a Cloudflare Tunnel, which terminates HTTPS at Cloudflare and
+needs no open port on your router:
 
-```nginx
-# nginx — the two Upgrade lines are mandatory, sync is a WebSocket
-location / {
-    proxy_pass http://127.0.0.1:3010;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade    $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host       $host;
-    proxy_read_timeout 3600s;   # don't cut idle sync sockets
-}
-```
+- **Inside this stack:** put the tunnel token in `CLOUDFLARE_TUNNEL_TOKEN` and
+  run `docker compose --profile tunnel up -d`. In the Cloudflare dashboard,
+  point the public hostname at `http://server:3010`.
+- **Elsewhere** (e.g. unraid's Cloudflared plugin): point the public hostname
+  at `http://<host>:<PUBLIC_PORT>`; set `BIND_ADDR=0.0.0.0` only if cloudflared
+  runs on another machine.
 
-Caddy needs no WebSocket config — `reverse_proxy 127.0.0.1:3010` is enough, and
-it gets you a certificate automatically.
+Either way `BETTER_AUTH_URL` is the tunnel's `https://` hostname. Details:
+[`docs/DEPLOY.md`](../../docs/DEPLOY.md#reach-it-from-the-internet-cloudflare-tunnel).
 
-Only set `BIND_ADDR=0.0.0.0` when something else already terminates TLS (a cloud
-load balancer, a Tailscale/WireGuard network, another host's proxy).
+## Accounts — the admin panel
+
+`<BETTER_AUTH_URL>/admin`, protected by `ADMIN_PASSWORD` (min. 12 characters;
+empty switches the panel off). List users, create them, set a new password,
+disable / enable, delete, and add a user to a vault. Forgot the password?
+`docker compose exec server printenv ADMIN_PASSWORD`.
 
 ## Operating it
 
@@ -80,8 +81,9 @@ Deleting `db_volume` deletes the server's data; stop the stack before copying it
 ## Optional pieces
 
 - **Google sign-in** — set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` with the
-  redirect URI `https://<your-server>/api/auth/callback/google`. Unset, the
-  desktop app hides the Google button and email + password still works.
+  redirect URI `https://<your-server>/api/auth/callback/google`. It only signs in
+  accounts you created in the admin panel (matched by email), never creates
+  one. Unset, the apps hide the Google button.
 - **No plans or limits.** Billing was removed from this fork: vaults, members,
   notes and storage are unlimited, and the Assistant and file sync are always on.
 - **Multiple instances** — only then set `REDIS_URL`, so every instance shares

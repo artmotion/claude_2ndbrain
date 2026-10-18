@@ -2,13 +2,14 @@
 // real server running (`pnpm --filter server dev`, with Docker Postgres up + migrated)
 // on :3010 (HTTP) / :3011 (Hocuspocus). Enable with CONTEXT_IT=1.
 //
-//   CONTEXT_IT=1 pnpm --filter desktop test -- integration
+//   CONTEXT_IT=1 CONTEXT_ADMIN_PASSWORD=<server ADMIN_PASSWORD> pnpm --filter desktop test -- integration
 //
 // It exercises the actual client modules: ApiClient (auth token capture, org,
 // vault, note registration, sync-token minting) and DocSync (HocuspocusProvider
 // wiring, readOnly gating, convergence). Registry reconciliation is Tauri-bound
 // (ipc), so this drives the server registry through ApiClient directly.
 
+import { createLiveAccount } from "./liveAccounts";
 import { afterAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import * as Y from "yjs";
@@ -42,7 +43,7 @@ describe.skipIf(!RUN)("client↔server integration", () => {
 
     // ---- User A (owner) ----
     const a = new ApiClient({ baseUrl: SERVER });
-    await a.signUp({ email: `a-${stamp}@it.test`, password: "password123", name: "Owner A" });
+    await createLiveAccount(SERVER, a, { email: `a-${stamp}@it.test`, password: "password123", name: "Owner A" });
     const org = await a.createOrganization({ name: `IT ${stamp}`, slug: `it-${stamp}` });
     await a.setActiveOrganization(org.id);
     const vault = await a.createVault({ name: `Vault ${stamp}`, organizationId: org.id });
@@ -51,7 +52,7 @@ describe.skipIf(!RUN)("client↔server integration", () => {
 
     // ---- User B (member, view-only) ----
     const b = new ApiClient({ baseUrl: SERVER });
-    const { user: bUser } = await b.signUp({
+    const { user: bUser } = await createLiveAccount(SERVER, b, {
       email: `b-${stamp}@it.test`,
       password: "password123",
       name: "Member B",
@@ -130,7 +131,7 @@ describe.skipIf(!RUN)("client↔server integration", () => {
     const wsPoly = WebSocket as unknown;
 
     const a = new ApiClient({ baseUrl: SERVER });
-    await a.signUp({ email: `flush-${stamp}@it.test`, password: "password123", name: "Flush A" });
+    await createLiveAccount(SERVER, a, { email: `flush-${stamp}@it.test`, password: "password123", name: "Flush A" });
     const org = await a.createOrganization({ name: `FL ${stamp}`, slug: `fl-${stamp}` });
     await a.setActiveOrganization(org.id);
     const vault = await a.createVault({ name: `FlVault ${stamp}`, organizationId: org.id });
@@ -171,14 +172,14 @@ describe.skipIf(!RUN)("client↔server integration", () => {
 
     // ---- User A (owner) creates org + vault ----
     const a = new ApiClient({ baseUrl: SERVER });
-    await a.signUp({ email: `att-a-${stamp}@it.test`, password: "password123", name: "Owner A" });
+    await createLiveAccount(SERVER, a, { email: `att-a-${stamp}@it.test`, password: "password123", name: "Owner A" });
     const org = await a.createOrganization({ name: `ATT ${stamp}`, slug: `att-${stamp}` });
     await a.setActiveOrganization(org.id);
     const vault = await a.createVault({ name: `AttVault ${stamp}`, organizationId: org.id });
 
     // ---- User B joins the vault (member) ----
     const b = new ApiClient({ baseUrl: SERVER });
-    await b.signUp({ email: `att-b-${stamp}@it.test`, password: "password123", name: "Member B" });
+    await createLiveAccount(SERVER, b, { email: `att-b-${stamp}@it.test`, password: "password123", name: "Member B" });
     await a.inviteMember({ email: `att-b-${stamp}@it.test`, role: "member", organizationId: org.id });
     const pending = await a.listInvitations(org.id);
     const invite = pending.find((i) => i.email === `att-b-${stamp}@it.test`) ?? pending[0];

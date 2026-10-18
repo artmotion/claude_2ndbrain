@@ -143,6 +143,9 @@ pnpm run migrate          # create the database schema
 pnpm run dev              # HTTP API :3010 · sync WS at :3010/sync (a legacy dedicated :3011 also listens)
 ```
 
+There is no sign-up: set `ADMIN_PASSWORD` (12+ characters) in `.env`, open
+`http://localhost:3010/admin` and create your account there.
+
 ### 3. Start the desktop app
 
 From the `app/` directory:
@@ -153,20 +156,22 @@ pnpm run dev:desktop      # launches the Tauri app (Vite on :1420)
 
 Open a folder of Markdown files (or create a new one) and start writing.
 
-### I want my own hosted server
+### Run your own server
 
 The Compose bundle brings up Postgres, the migrations and the server in one
-command on any machine with Docker:
+command on any machine with Docker (a PC, or a NAS such as unraid), optionally
+with a Cloudflare Tunnel for a public HTTPS address:
 
 ```bash
 cd deploy/compose
-cp .env.example .env      # fill in POSTGRES_PASSWORD, JWT_SECRET, BETTER_AUTH_URL
-docker compose up -d
+cp .env.example .env      # POSTGRES_PASSWORD, JWT_SECRET, BETTER_AUTH_URL, ADMIN_PASSWORD
+docker compose up -d --build
 ```
 
-See [`deploy/compose/README.md`](deploy/compose/README.md) for TLS, backups and
-upgrades, or [`docs/DEPLOY.md`](docs/DEPLOY.md) for plain Docker and the full
-environment variable reference.
+Create accounts at `<BETTER_AUTH_URL>/admin`; there is no self sign-up. See
+[`deploy/compose/README.md`](deploy/compose/README.md) for the tunnel, backups and
+upgrades, and [`docs/DEPLOY.md`](docs/DEPLOY.md) for the full environment
+variable reference.
 
 ---
 

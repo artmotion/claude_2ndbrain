@@ -1425,21 +1425,6 @@ export class ApiClient {
 
   // ---- Auth (Better Auth) -------------------------------------------------
 
-  /** Sign up with email+password. Returns the session token to persist. */
-  async signUp(input: { email: string; password: string; name: string }): Promise<{
-    user: AuthUser;
-    token: string | null;
-  }> {
-    const { data, authToken } = await this.request<{ user: AuthUser; token?: string }>(
-      "POST",
-      "/api/auth/sign-up/email",
-      { body: input, captureAuthToken: true },
-    );
-    const token = authToken ?? data.token ?? null;
-    if (token) this.token = token;
-    return { user: data.user, token };
-  }
-
   /** Sign in with email+password. Returns the session token to persist. */
   async signIn(input: { email: string; password: string }): Promise<{
     user: AuthUser;
@@ -1539,15 +1524,6 @@ export class ApiClient {
       "POST",
       `/api/invitations/${encodeURIComponent(invitationId)}/send`,
     );
-  }
-
-  /** Re-send the sign-up confirmation email for the signed-in address. */
-  async sendVerificationEmail(email: string): Promise<void> {
-    // The server builds its own link and ignores callbackURL, but Better Auth's
-    // schema requires the field.
-    await this.request<unknown>("POST", "/api/auth/send-verification-email", {
-      body: { email, callbackURL: "/email-verified" },
-    });
   }
 
   /**

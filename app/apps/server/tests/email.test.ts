@@ -5,7 +5,7 @@ import {
   resendMailer,
   resolveEmailConfig,
 } from "../src/email/mailer.js";
-import { invitationEmail, resetPasswordEmail, verifyEmailEmail } from "../src/email/templates.js";
+import { invitationEmail, resetPasswordEmail } from "../src/email/templates.js";
 
 /**
  * Outbound email configuration (issue #99). No Postgres, no network: the
@@ -111,9 +111,6 @@ describe("templates", () => {
     expect(reset.text).toContain("https://s/reset-password?token=T");
     expect(reset.html).toContain("https://s/reset-password?token=T");
     expect(reset.subject).toMatch(/reset/i);
-
-    const verify = verifyEmailEmail({ to: "a@x.io", url: "https://s/v?token=T" });
-    expect(verify.text).toContain("https://s/v?token=T");
 
     const inv = invitationEmail({
       to: "a@x.io",

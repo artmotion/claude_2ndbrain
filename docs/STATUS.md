@@ -27,6 +27,10 @@ tags: [secondbrain, status, roadmap]
   Phase 2: long-press context menus (`lib/touchContextMenu.ts`) and touch sizing (`styles/ios.css`).
   Phase 3: bootstrap pages hold 100 docs and download newest-edited first. Not yet verified on a
   real iPad against a live server; no folder picker for external locations.
+- **Accounts:** 🟢 2026-10-18. No self sign-up anywhere (server, desktop, iPad). The server's admin
+  panel at `/admin` (`ADMIN_PASSWORD`) lists, creates, resets, disables and deletes users and adds
+  them to vaults; Google sign-in only signs in existing accounts. Deployment: Docker Compose on
+  Debian images (Postgres 17) with an optional Cloudflare Tunnel; Coolify and Railway are gone.
 - **Billing:** ⬜ Removed in this fork (2026-10-13). There is no hosted service, so every server
   behaves as the old billing-disabled self-host: no plans, seats, quotas or 402 refusals; the
   Assistant and standalone-file sync are always available. Migration 056 drops the billing tables.

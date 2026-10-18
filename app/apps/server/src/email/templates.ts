@@ -80,24 +80,6 @@ export function resetPasswordEmail(input: { to: string; url: string; validMinute
   return { to: input.to, subject, text, html };
 }
 
-export function verifyEmailEmail(input: { to: string; url: string }): MailMessage {
-  const subject = `Confirm your email for ${BRAND_NAME}`;
-  const text = [
-    `Welcome to ${BRAND_NAME}. Please confirm that ${input.to} is yours:`,
-    input.url,
-    ``,
-    `If you didn't create a ${BRAND_NAME} account, you can ignore this email.`,
-  ].join("\n");
-  const html = layout({
-    title: "Confirm your email",
-    intro: `Welcome to ${esc(BRAND_NAME)}. Please confirm that <b>${esc(input.to)}</b> is yours.`,
-    cta: "Confirm email",
-    url: input.url,
-    outro: `If you didn't create a ${esc(BRAND_NAME)} account, you can ignore this email.`,
-  });
-  return { to: input.to, subject, text, html };
-}
-
 export function invitationEmail(input: {
   to: string;
   url: string;
