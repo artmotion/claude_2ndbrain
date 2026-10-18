@@ -56,11 +56,19 @@ services:
     # postgres image and exits 0 once the database answers. The migrate job
     # below waits for this (`condition: service_healthy`), so migrations never
     # run against a database that is still starting up.
+    #
+    # `-h 127.0.0.1` matters: on the FIRST start the image initialises the
+    # database with a temporary server that listens on the Unix socket only
+    # (listen_addresses=''). A socket check passes during that phase, so
+    # migrate connected over TCP too early and got ECONNREFUSED (seen with a
+    # slow first start on Docker Desktop for Windows). A TCP check only passes
+    # once the real server is up.
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "secondbrain", "-d", "secondbrain"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "secondbrain", "-d", "secondbrain"]
       interval: 5s
       timeout: 5s
       retries: 20
+      start_period: 30s
 
   # Runs to completion, then the server starts: schema changes land before anything serves traffic, so a
   # deploy can never briefly answer requests against an old schema.
