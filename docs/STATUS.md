@@ -255,6 +255,10 @@ Six changes that together make a vault something a team can actually govern.
 - [ ] AI-as-CRDT-peer for live collaborative sessions.
 - [ ] libSQL at-rest encryption; OAuth / social login (Tauri PKCE deep-link).
 - [ ] **iOS app** (Tauri 2, same Rust core) as a dedicated milestone.
+- [ ] **Desktop (Windows): choose the location in "Create new vault".** Today a new vault always
+  goes to `<home>\Documents\2ndBrain Vaults\<name>` (`VaultPicker.tsx startNewVault` →
+  `ipc.getVaultsRoot`); add a "Change location…" step with the folder picker, keeping the vaults root
+  as the default. The `\Documents` display reads more natural on macOS than on Windows, but is OK.
 
 ---
 

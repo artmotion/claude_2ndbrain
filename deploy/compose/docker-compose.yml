@@ -38,9 +38,14 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: secondbrain
     volumes:
-      # Named volume, not a bind mount: this is the durable copy of every note's
-      # CRDT history. `docker compose down -v` deletes it. Back it up.
-      - secondbrain_pgdata:/var/lib/postgresql/data
+      # The durable copy of everything the server holds: every note's CRDT
+      # history, accounts, permissions and (by default) attachment bytes. A
+      # host folder next to this file, so it survives container restarts,
+      # rebuilds and `docker compose down -v`. Back it up.
+      # On Docker Desktop for Windows, a bind mount on an NTFS drive can break
+      # Postgres (wrong ownership/permissions): set DB_VOLUME to a WSL path
+      # (\\wsl$\...) or to a named volume such as `secondbrain_pgdata`.
+      - ${DB_VOLUME:-./db_volume}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U secondbrain -d secondbrain"]
       interval: 5s
@@ -65,7 +70,9 @@ services:
     # the API over plain HTTP to the internet; terminate TLS in front of it (see
     # the README) and let the proxy reach this port.
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:${PORT:-3010}:3010"
+      # PUBLIC_PORT is the port on the HOST; inside the container the server
+      # always listens on 3010.
+      - "${BIND_ADDR:-127.0.0.1}:${PUBLIC_PORT:-3010}:3010"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -120,12 +127,16 @@ services:
     profiles: ["minio"]
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in .env}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      # Not `:?`-required: Compose interpolates every service, profiles
+      # included, so a required variable here would block a plain
+      # `docker compose up` that never starts MinIO. MinIO itself refuses to
+      # start without a password (min. 8 characters).
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-secondbrain}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
     volumes:
-      # Named volume, like the database's: this is where the attachments live
-      # once BLOB_STORAGE=s3. `docker compose down -v` deletes it. Back it up.
-      - secondbrain_minio:/data
+      # Attachment bytes once BLOB_STORAGE=s3 (notes themselves always stay in
+      # Postgres). A host folder next to this file, like db_volume. Back it up.
+      - ${DATA_VOLUME:-./data_volume}:/data
     # Not published by default — the server reaches it on the internal network.
     # Uncomment to expose the API (9000) and the web console (9001) on the host.
     # ports:
@@ -138,6 +149,8 @@ services:
       timeout: 5s
       retries: 10
 
-volumes:
-  secondbrain_pgdata:
-  secondbrain_minio:
+# Uncomment only if you point DB_VOLUME or DATA_VOLUME at a named volume
+# instead of a host folder (e.g. DB_VOLUME=secondbrain_pgdata on Windows).
+# volumes:
+#   secondbrain_pgdata:
+#   secondbrain_minio:
