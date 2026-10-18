@@ -255,7 +255,7 @@ export function createApp(deps: AppDeps): Hono {
 </head>
 <body style="font-family: system-ui, sans-serif; margin: 3rem;">
 <p><img src="/icon.png" alt="2ndBrain" width="64" height="64" /></p>
-<p>This is the 2ndBrain sync and MCP server. The app lives at <a href="https://github.com/artmotion/claude_baalda">github.com/artmotion/claude_baalda</a>.</p>
+<p>This is the 2ndBrain sync and MCP server. The app lives at <a href="https://github.com/artmotion/claude_2ndbrain">github.com/artmotion/claude_2ndbrain</a>.</p>
 </body>
 </html>`),
   );

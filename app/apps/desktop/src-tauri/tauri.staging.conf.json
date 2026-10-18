@@ -10,7 +10,7 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/artmotion/claude_baalda/releases/download/staging/latest.json"
+        "https://github.com/artmotion/claude_2ndbrain/releases/download/staging/latest.json"
       ]
     }
   }

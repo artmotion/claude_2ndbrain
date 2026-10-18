@@ -180,7 +180,7 @@ runs, so the first matrix job recreates both at the new commit and the other thr
 upload into it. That is why the updater endpoint can be a fixed URL:
 
 ```
-https://github.com/artmotion/claude_baalda/releases/download/staging/latest.json
+https://github.com/artmotion/claude_2ndbrain/releases/download/staging/latest.json
 ```
 
 The staging app polls that; production polls `releases/latest`. The two can never
@@ -533,7 +533,7 @@ gh release create v0.1.10 --title "2ndBrain v0.1.10" --notes-file notes.md \
 **Confirm the update path** actually resolves — this is the endpoint the app polls:
 
 ```bash
-curl -sL https://github.com/artmotion/claude_baalda/releases/latest/download/latest.json
+curl -sL https://github.com/artmotion/claude_2ndbrain/releases/latest/download/latest.json
 ```
 
 ## Two kinds of signing

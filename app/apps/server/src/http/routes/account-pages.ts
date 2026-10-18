@@ -241,7 +241,7 @@ accountPageRoutes.get("/invite/:id", async (c) => {
     <p class="sub" style="margin-top:18px">Sign in with <b>${esc(
       inv.email,
     )}</b> — or create an account with that address — and you'll land in the vault.</p>
-    <p class="foot">Don't have ${esc(BRAND_NAME)} yet? <a href="https://github.com/artmotion/claude_baalda" rel="noopener">Get it</a>, then open this link again.</p>
+    <p class="foot">Don't have ${esc(BRAND_NAME)} yet? <a href="https://github.com/artmotion/claude_2ndbrain" rel="noopener">Get it</a>, then open this link again.</p>
     <script>location.href = ${JSON.stringify(deepLink)};</script>`;
   return c.html(page({ title: `Join ${inv.organizationName}`, body }));
 });

@@ -48,7 +48,7 @@ The brand name may appear **only** in these places. A rebrand touches this list 
 - `app/apps/desktop/src-tauri/src/commands.rs`: the user-visible managed notes root folder constant
   (`~/2ndBrain`).
 - `app/apps/desktop/src-tauri/Cargo.toml`: `description` / `authors`.
-- The GitHub repo name and its URLs (`github.com/artmotion/claude_baalda`).
+- The GitHub repo name and its URLs (`github.com/artmotion/claude_2ndbrain`).
 
 **Rule: a rebrand touches only this list.** If you find the brand name anywhere else, that is a bug.
 Move it into `brand.ts` (or the docs equivalent) and reference it from there.

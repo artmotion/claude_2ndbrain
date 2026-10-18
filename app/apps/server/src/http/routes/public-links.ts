@@ -308,11 +308,11 @@ function pageShell(title: string, inner: string, openHref?: string): string {
 </head>
 <body>
 <div class="wrap">
-<header class="site-top"><a class="brand" href="https://github.com/artmotion/claude_baalda" rel="noopener noreferrer">${esc(BRAND_NAME.toUpperCase())}</a>${open}</header>
+<header class="site-top"><a class="brand" href="https://github.com/artmotion/claude_2ndbrain" rel="noopener noreferrer">${esc(BRAND_NAME.toUpperCase())}</a>${open}</header>
 <main>
 ${inner}
 </main>
-<footer>Shared with ${esc(BRAND_NAME)} · <a href="https://github.com/artmotion/claude_baalda" rel="noopener noreferrer">Get ${esc(BRAND_NAME)}</a></footer>
+<footer>Shared with ${esc(BRAND_NAME)} · <a href="https://github.com/artmotion/claude_2ndbrain" rel="noopener noreferrer">Get ${esc(BRAND_NAME)}</a></footer>
 </div>
 </body>
 </html>`;

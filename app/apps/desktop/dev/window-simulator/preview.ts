@@ -42,7 +42,7 @@ localStorage.setItem(
   JSON.stringify({ "preview-org": vault.path }),
 );
 const note =
-  "Three bets this quarter: a simpler Share dialog, a calmer sidebar, and faster sync. Each one has an owner and a date. See [Pricing experiments](Specs/Pricing%20experiments.md) for the numbers behind the second.\n\n## Getting started\n\n- [How 2ndBrain works](https://github.com/artmotion/claude_baalda)\n- [Keyboard shortcuts](https://github.com/artmotion/claude_baalda)\n- [Collaborating with your team](https://github.com/artmotion/claude_baalda)\n";
+  "Three bets this quarter: a simpler Share dialog, a calmer sidebar, and faster sync. Each one has an owner and a date. See [Pricing experiments](Specs/Pricing%20experiments.md) for the numbers behind the second.\n\n## Getting started\n\n- [How 2ndBrain works](https://github.com/artmotion/claude_2ndbrain)\n- [Keyboard shortcuts](https://github.com/artmotion/claude_2ndbrain)\n- [Collaborating with your team](https://github.com/artmotion/claude_2ndbrain)\n";
 const item = (path: string, isDir = false, children?: any[]) => ({
   id: path,
   path,

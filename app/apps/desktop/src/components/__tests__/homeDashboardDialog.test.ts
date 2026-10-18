@@ -81,7 +81,7 @@ it("offers installed provider actions and launches the exact created file", asyn
 it("opens a newly added link without a success modal", async () => {
  await act(async()=>window.dispatchEvent(new CustomEvent("secondbrain:new-dashboard", { detail: { kind: "link" } })));
  const url = document.querySelector<HTMLInputElement>('.dashboard-url-field input')!;
- await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(url,"https://github.com/artmotion/claude_baalda");url.dispatchEvent(new Event("input",{bubbles:true}));});
+ await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!.call(url,"https://github.com/artmotion/claude_2ndbrain");url.dispatchEvent(new Event("input",{bubbles:true}));});
  mocks.write.mockResolvedValue(true);
  await create();
  expect(mocks.state.openNoteByPath).toHaveBeenCalledWith("Dashboards/Home.url");

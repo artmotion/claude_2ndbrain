@@ -53,7 +53,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM5M0Y3Mjg4RDcwQTlGMTUKUldRVm53clhpSEkveVZqVG1Ub2RwYzBHR0toeGFRYVIrandud3VLY1BYc0ZIUTRTTGFpdHRRMnQK",
       "endpoints": [
-        "https://github.com/artmotion/claude_baalda/releases/latest/download/latest.json"
+        "https://github.com/artmotion/claude_2ndbrain/releases/latest/download/latest.json"
       ]
     },
     "deep-link": {

@@ -516,8 +516,8 @@ export async function launchUpdateGate(
  */
 export const RELEASES_PAGE_URL =
   APP_SCHEME === "secondbrain-staging"
-    ? "https://github.com/artmotion/claude_baalda/releases/tag/staging"
-    : "https://github.com/artmotion/claude_baalda/releases/latest";
+    ? "https://github.com/artmotion/claude_2ndbrain/releases/tag/staging"
+    : "https://github.com/artmotion/claude_2ndbrain/releases/latest";
 
 let serverRequired = false;
 
