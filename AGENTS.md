@@ -10,7 +10,7 @@ historical implementation details in either document.
 - Product and docs index: `docs/2ndBrain.md`.
 - Design specs: `docs/specs/00`–`04` and `docs/specs/REQUIREMENTS.md`.
 - Build status: `docs/STATUS.md`; branding: `docs/BRANDING.md`.
-- Contribution rules: `CONTRIBUTING.md`; release process: `docs/RELEASE.md`.
+- Contribution rules: `CONTRIBUTING.md`; builds: `docs/RELEASE.md`.
 - Use the current package manifests for commands and dependency versions. Older
   documentation still mentions npm; the repository uses pnpm workspaces.
 
@@ -118,13 +118,12 @@ header specified in `CONTRIBUTING.md`.
 
 ## Branches and repository boundaries
 
-- Feature PRs target `staging`. Inspect the working tree before switching branches
-  and preserve unrelated user changes.
+- Work lands on `main` (there is no `staging` branch). Inspect the working tree
+  before switching branches and preserve unrelated user changes.
 - Use the repository's configured author identity for commits and pull requests.
   Do not add AI/tool attribution, generated-by text, or co-author trailers.
-- Every push to `staging` triggers a rolling staging prerelease. Production
-  releases are driven by the version gate on `main` or a `v*` tag; tags can ship
-  immediately to installed apps. Follow `docs/RELEASE.md` for promotion and the
-  coordinated four-file version bump. Do not treat pushes/tags as local checks.
+- Pushes to `main` that touch `app/**` rebuild the Windows installers and the
+  iPad build (rolling `windows-dev` / `ios-dev` prereleases); see
+  `docs/RELEASE.md`. Do not treat pushes as local checks.
 - This is a public repository. Never commit credentials, `.env` files, or private
   server configuration. Everything is Apache-2.0; there is no enterprise code.

@@ -103,11 +103,8 @@ Self-hosting and production deployment (Docker, env vars, the single-port `/sync
 topology) are covered in [[DEPLOY]]. This fork has no hosted backend:
 the desktop app points at your own server via the server URL in Settings (or `VITE_SERVER_URL` at build time).
 
-Cutting a desktop release — the `v*` tag flow, updater vs. OS code signing, and the
-macOS notarization setup — is covered in [[RELEASE]]. It also carries the two runbooks
-you want when a release will not go out: what to check when **notarization hangs**
-(and what has already been ruled out), and how to **cut a release from your Mac**
-when CI cannot ship.
+How the Windows and iPad builds are produced (GitHub Actions, rolling `windows-dev` /
+`ios-dev` prereleases, no signing yet) is covered in [[RELEASE]].
 
 ---
 
