@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # Debian-based (no Alpine). The volume name carries the major version:
+    # Postgres 17 cannot start on a 16 data directory.
+    image: postgres:17
     container_name: context-pg
     restart: unless-stopped
     environment:
@@ -11,9 +13,10 @@ services:
       # Host 5439 -> container 5432 (avoids clashing with a local Postgres on 5432)
       - "5439:5432"
     volumes:
-      - context_pgdata:/var/lib/postgresql/data
+      - context_pgdata17:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U context -d context"]
+      # TCP, not the socket: the image's first-start init server is socket-only.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "context", "-d", "context"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -21,7 +24,7 @@ services:
   # Optional: only for multi-instance / HA vault sync (spec 05). Single-instance
   # dev and self-host need nothing here. Start with: `docker compose --profile ha up`.
   redis:
-    image: redis:7-alpine
+    image: redis:7
     container_name: context-redis
     restart: unless-stopped
     profiles: ["ha"]
@@ -34,4 +37,4 @@ services:
       retries: 20
 
 volumes:
-  context_pgdata:
+  context_pgdata17:

@@ -15,8 +15,11 @@
 #     -e BETTER_AUTH_URL=https://your-host \
 #     secondbrain-server
 
+# Debian (glibc) images throughout, never Alpine/musl: the owner does not run
+# important software on musl, and native modules (argon2) use their glibc builds.
+
 # ---- build: install workspace deps, compile, prune to a deployable bundle --
-FROM node:22-alpine AS build
+FROM node:22-bookworm-slim AS build
 # corepack reads the pinned pnpm version from package.json's packageManager
 # field, so the build always uses the same pnpm as CI and local dev.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -41,10 +44,16 @@ RUN pnpm --filter server run build
 RUN pnpm --filter server --prod deploy --legacy /out
 
 # ---- runtime: node + the deployed bundle, no package manager ---------------
-FROM node:22-alpine AS runtime
+FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
+# curl only for the container health check (GET /health); slim ships none.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=build /out ./
+COPY --from=build --chown=node:node /out ./
+# Run as the image's unprivileged `node` user, not root.
+USER node
 
 ENV PORT=3010
 EXPOSE 3010
