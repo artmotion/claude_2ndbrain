@@ -40,14 +40,19 @@ services:
     volumes:
       # The durable copy of everything the server holds: every note's CRDT
       # history, accounts, permissions and (by default) attachment bytes. A
-      # host folder next to this file, so it survives container restarts,
-      # rebuilds and `docker compose down -v`. Back it up.
+      # host folder in the project's data/ directory (git-ignored), so it
+      # survives container restarts, rebuilds and `docker compose down -v`.
+      # Back it up.
       # On Docker Desktop for Windows, a bind mount on an NTFS drive can break
       # Postgres (wrong ownership/permissions): set DB_VOLUME to a WSL path
       # (\\wsl$\...) or to a named volume such as `secondbrain_pgdata`.
-      - ${DB_VOLUME:-./db_volume}:/var/lib/postgresql/data
+      - ${DB_VOLUME:-../../data/db_volume}:/var/lib/postgresql/data
+    # "Is Postgres accepting connections yet?" pg_isready ships with the
+    # postgres image and exits 0 once the database answers. The migrate job
+    # below waits for this (`condition: service_healthy`), so migrations never
+    # run against a database that is still starting up.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U secondbrain -d secondbrain"]
+      test: ["CMD", "pg_isready", "-U", "secondbrain", "-d", "secondbrain"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -77,14 +82,12 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    # "Does the server answer?" Requests GET /health inside the container and
+    # fails on any error or non-2xx answer. wget is BusyBox's, built into the
+    # node:22-alpine base image (there is no curl). `docker compose ps` shows
+    # the result as healthy / unhealthy.
     healthcheck:
-      # node's global fetch rather than curl — the runtime image is node:22-alpine
-      # and deliberately ships no HTTP client binaries.
-      test:
-        - CMD
-        - node
-        - -e
-        - fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3010/health"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -135,8 +138,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
     volumes:
       # Attachment bytes once BLOB_STORAGE=s3 (notes themselves always stay in
-      # Postgres). A host folder next to this file, like db_volume. Back it up.
-      - ${DATA_VOLUME:-./data_volume}:/data
+      # Postgres). A host folder in data/, like db_volume. Back it up.
+      - ${DATA_VOLUME:-../../data/data_volume}:/data
     # Not published by default — the server reaches it on the internal network.
     # Uncomment to expose the API (9000) and the web console (9001) on the host.
     # ports:

@@ -15,7 +15,7 @@ Then in the desktop app: **account menu → Server settings →** your
 
 | Service | What it does |
 | --- | --- |
-| `postgres` | Postgres 16, data in `./db_volume` on the host. Never published to the host. |
+| `postgres` | Postgres 16, data in `data/db_volume` at the project root. Never published to the host. |
 | `migrate` | Runs `dist/db/migrate.js` to completion, *then* exits. |
 | `server` | Hono HTTP + Hocuspocus WS on **one** port (`3010`). |
 
@@ -62,8 +62,9 @@ docker compose pull && docker compose up -d --build   # upgrade
 **Back up `db_volume`.** It holds every note's CRDT history, accounts,
 permissions and (unless you use MinIO) attachments — the server's copy of your
 team's writing. The server container itself keeps nothing on disk; with the
-`minio` profile, attachment bytes go to `./data_volume`. Both are host folders
-next to `docker-compose.yml` (change them with `DB_VOLUME` / `DATA_VOLUME`), so
+`minio` profile, attachment bytes go to `data/data_volume`. Both live in the
+project root's `data/` folder, which git ignores (change them with `DB_VOLUME` /
+`DATA_VOLUME`), so
 they survive restarts, rebuilds and `docker compose down -v`. The host port is
 `PUBLIC_PORT` (default 3010). Note that each desktop client also keeps
 its own `.md` files on disk, so a total server loss is recoverable from any
