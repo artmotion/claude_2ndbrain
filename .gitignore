@@ -21,3 +21,6 @@ target/
 
 # Self-host data (deploy/compose bind mounts): never commit it
 /data/
+# Cloudflare Tunnel config and credentials (secret); only the example is tracked
+/deploy/compose/cloudflared/*
+!/deploy/compose/cloudflared/config.yml.example

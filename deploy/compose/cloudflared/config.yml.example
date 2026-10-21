@@ -1,0 +1,10 @@
+# Copy to config.yml (git-ignored) and fill in your tunnel's UUID and hostname.
+# The credentials file is the <UUID>.json written by `cloudflared tunnel create`;
+# copy it into this folder too. See docs/DEPLOY.md → Cloudflare Tunnel.
+tunnel: <TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: notes.example.com
+    service: http://server:3010
+  - service: http_status:404

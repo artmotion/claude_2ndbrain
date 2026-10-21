@@ -78,15 +78,24 @@ gives the server a public HTTPS hostname without opening ports on your router.
 The desktop and iPad apps require HTTPS for anything but `localhost`, and the
 tunnel provides it.
 
-1. In the Cloudflare dashboard create a tunnel and a public hostname, e.g.
-   `notes.example.com` → service `http://server:3010` (when cloudflared runs in
-   this Compose stack) or `http://localhost:<PUBLIC_PORT>` (when it runs on the
-   host, e.g. unraid's Cloudflared plugin).
-2. Set `BETTER_AUTH_URL=https://notes.example.com` in `.env`.
-3. To run cloudflared inside the stack, put the tunnel's token in
-   `CLOUDFLARE_TUNNEL_TOKEN` and start with
-   `docker compose --profile tunnel up -d`.
-4. In the app, sign in with `https://notes.example.com` as the server (or bake
+The tunnel is managed with the `cloudflared` CLI on any machine (Windows:
+`winget install --id Cloudflare.cloudflared`); the domain must be on Cloudflare.
+
+1. Log in once and pick the domain (writes `cert.pem` to `~/.cloudflared/`):
+   `cloudflared tunnel login`
+2. Create the tunnel (prints its UUID and writes `~/.cloudflared/<UUID>.json`):
+   `cloudflared tunnel create 2ndbrain`
+3. Point a hostname at it (creates the proxied CNAME):
+   `cloudflared tunnel route dns 2ndbrain notes.example.com`
+4. Copy `<UUID>.json` into `deploy/compose/cloudflared/`, and copy
+   `cloudflared/config.yml.example` to `cloudflared/config.yml` with your UUID
+   and hostname. Both are git-ignored; the JSON is the tunnel's secret.
+   The ingress service is `http://server:3010` when cloudflared runs in this
+   Compose stack, or `http://localhost:<PUBLIC_PORT>` when it runs on the host.
+5. Set `BETTER_AUTH_URL=https://notes.example.com` in `.env` and start with
+   `docker compose --profile tunnel up -d`. `docker compose logs cloudflared`
+   should show four registered connections.
+6. In the app, sign in with `https://notes.example.com` as the server (or bake
    it into your builds with the `SERVER_URL` repository variable).
 
 Cloudflare passes the real client address in `CF-Connecting-IP`; the server's
@@ -101,7 +110,6 @@ rate limits (sign-in, admin login) use it.
 | `JWT_SECRET` | yes | dev-only insecure default | Better Auth crypto **and** sync JWT signing. Generate with `openssl rand -base64 32`. Rotating it invalidates all sessions and sync tokens. |
 | `BETTER_AUTH_URL` | yes | `http://localhost:3010` | Public base URL (your tunnel hostname, `https://…`) used for auth links (password reset, invitations). Must match the URL clients actually use. |
 | `ADMIN_PASSWORD` | for the admin panel | unset | Password for `/admin`, at least 12 characters. Unset or shorter ⇒ the panel is off (404). |
-| `CLOUDFLARE_TUNNEL_TOKEN` | for `--profile tunnel` | unset | Token of your Cloudflare Tunnel; only read by the optional `cloudflared` service in `deploy/compose`. |
 | `PORT` | no | `3010` | HTTP API port. Serves the sync WebSocket at `/sync` too. This is the only port a deployment needs to expose. |
 | `HOCUSPOCUS_PORT` | no | `3011` | Legacy dedicated Hocuspocus port, used in local dev and by older clients. Not required in production. |
 | `SYNC_TOKEN_TTL_SECONDS` | no | `600` | Per-doc sync JWT lifetime. |

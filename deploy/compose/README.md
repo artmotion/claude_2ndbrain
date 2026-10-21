@@ -35,9 +35,10 @@ tokens and note content, and the apps only talk plain HTTP to `localhost`.
 Expose it through a Cloudflare Tunnel, which terminates HTTPS at Cloudflare and
 needs no open port on your router:
 
-- **Inside this stack:** put the tunnel token in `CLOUDFLARE_TUNNEL_TOKEN` and
-  run `docker compose --profile tunnel up -d`. In the Cloudflare dashboard,
-  point the public hostname at `http://server:3010`.
+- **Inside this stack:** create the tunnel with the `cloudflared` CLI, put its
+  `config.yml` (from `cloudflared/config.yml.example`, ingress →
+  `http://server:3010`) and credentials JSON in `cloudflared/` (git-ignored),
+  then run `docker compose --profile tunnel up -d`.
 - **Elsewhere** (e.g. unraid's Cloudflared plugin): point the public hostname
   at `http://<host>:<PUBLIC_PORT>`; set `BIND_ADDR=0.0.0.0` only if cloudflared
   runs on another machine.

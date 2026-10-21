@@ -113,17 +113,19 @@ services:
 
   # OPTIONAL: `docker compose --profile tunnel up -d`. Runs a Cloudflare Tunnel
   # inside the stack, so the server gets a public HTTPS hostname without any
-  # port opened on your router. In the Cloudflare dashboard, point the tunnel's
-  # public hostname at http://server:3010 (this service reaches the server on
-  # the internal network) and set BETTER_AUTH_URL to that https:// hostname.
+  # port opened on your router. The tunnel is created with the cloudflared CLI
+  # (docs/DEPLOY.md → Cloudflare Tunnel); its config.yml and credentials JSON
+  # live in ./cloudflared/ (git-ignored; start from config.yml.example), with
+  # the ingress pointing at http://server:3010 on the internal network. Set
+  # BETTER_AUTH_URL to the tunnel's https:// hostname.
   # Running cloudflared elsewhere instead (e.g. unraid's plugin)? Leave this
   # off and point it at http://<host>:${PUBLIC_PORT}.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: docker.io/cloudflare/cloudflared:latest
     profiles: ["tunnel"]
-    command: ["tunnel", "--no-autoupdate", "run"]
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
     depends_on:
       server:
         condition: service_healthy
