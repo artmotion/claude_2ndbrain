@@ -8,6 +8,8 @@
  * (signed out, local vault, channel not live, an older server that never
  * answered `hiddenContent`) falls back to `none`, the ordinary prompt.
  */
+import type { Platform } from "./platform";
+import { shortcutLabel } from "./shortcutLabel";
 export type EmptyVaultState = "none" | "empty-vault" | "nothing-shared";
 
 export interface EmptyVaultInput {
@@ -41,6 +43,6 @@ export function nothingSharedBody(ownerName: string | null | undefined, vaultNam
 }
 
 /** The editor's resting prompt; never mentions ⌘N when a root create would be refused. */
-export function editorEmptyPrompt(canCreateRoot: boolean | null): string {
-  return canCreateRoot === false ? "Select a note." : "Select a note, or press ⌘N to create one.";
+export function editorEmptyPrompt(canCreateRoot: boolean | null, platform?: Platform): string {
+  return canCreateRoot === false ? "Select a note." : `Select a note, or press ${shortcutLabel("⌘N", platform)} to create one.`;
 }

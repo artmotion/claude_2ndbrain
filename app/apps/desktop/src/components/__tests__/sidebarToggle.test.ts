@@ -23,9 +23,19 @@ describe("SidebarToggle", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    delete document.documentElement.dataset.platform;
+  });
+
+  it("labels the search shortcut for the platform", () => {
+    document.documentElement.dataset.platform = "windows";
+    act(() => root.render(createElement(SidebarToggle, {
+      hidden: false, onToggle: vi.fn(), searchOpen: false, onSearch: vi.fn(),
+    })));
+    expect(host.querySelector<HTMLButtonElement>(".titlebar-search")!.title).toBe("Search notes (Ctrl+F)");
   });
 
   it("reflects both visibility states without firing during render", () => {
+    document.documentElement.dataset.platform = "macos";
     const onToggle = vi.fn();
     const onSearch = vi.fn();
     act(() => root.render(createElement(SidebarToggle, {

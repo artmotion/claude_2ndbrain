@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { shortcutLabel } from "../lib/shortcutLabel";
+
 export function GraphButton({ onClick, titlebar = false }: {
   onClick: () => void;
   titlebar?: boolean;
 }) {
-  const modifier = document.documentElement.dataset.platform === "windows" ? "Ctrl+" : "⌘";
   return (
     <button
       type="button"
       className={`${titlebar ? "titlebar-tool" : "icon-btn"} graph-btn`}
-      title={`Graph view (${modifier}G)`}
+      title={`Graph view (${shortcutLabel("⌘G")})`}
       aria-label="Open graph view"
       onClick={onClick}
     >

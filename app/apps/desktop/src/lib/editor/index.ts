@@ -140,7 +140,10 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     // CRDT notes use the Yjs UndoManager keymap (added via extraExtensions);
     // the local CM6 history keymap would fight it, so drop it in collab mode.
     ...(collab ? [] : historyKeymap),
-    ...searchKeymap,
+    // Mod-f and Mod-g belong to the app (search all notes, graph view;
+    // `App.tsx`), which skips a key the editor already handled. In-note find
+    // stays on F3 / Shift-F3.
+    ...searchKeymap.filter((b) => b.key !== "Mod-f" && b.key !== "Mod-g"),
   ];
 
   return [

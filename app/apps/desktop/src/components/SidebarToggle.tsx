@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { GraphButton } from "./GraphButton";
+import { shortcutLabel } from "../lib/shortcutLabel";
 
 /** Window-chrome control for showing and hiding the vault sidebar. */
 export function SidebarToggle({
@@ -43,7 +44,7 @@ export function SidebarToggle({
       <button
         type="button"
         className="titlebar-tool titlebar-search"
-        title={document.documentElement.dataset.platform === "windows" ? "Search notes (Ctrl+F)" : "Search notes (⌘F)"}
+        title={`Search notes (${shortcutLabel("⌘F")})`}
         aria-label="Search notes"
         aria-pressed={searchOpen}
         onClick={onSearch}

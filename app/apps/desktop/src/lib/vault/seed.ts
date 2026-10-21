@@ -27,6 +27,7 @@
 // column width. One logical line per paragraph / list item lets the text flow
 // to whatever measure the editor has.
 
+import { localizeShortcuts } from "../shortcutLabel";
 import * as ipc from "../ipc";
 import type { TreeNode } from "../ipc";
 
@@ -447,7 +448,7 @@ export async function seedWelcomeContent(
 ): Promise<string | null> {
   try {
     for (const note of STARTER_NOTES) {
-      await ipc.writeNote(note.path, note.body, expectedEpoch);
+      await ipc.writeNote(note.path, localizeShortcuts(note.body), expectedEpoch);
     }
     return WELCOME_NOTE_PATH;
   } catch (e) {

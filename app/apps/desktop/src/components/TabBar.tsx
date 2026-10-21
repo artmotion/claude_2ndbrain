@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { placeMenu, type Placement } from "../lib/menuPlacement";
 import { noteLabel } from "../lib/notePath";
+import { shortcutLabel } from "../lib/shortcutLabel";
 import { useStore } from "../store";
 
 /** Right-click menu state: the tab it was opened on plus the cursor anchor. */
@@ -224,7 +225,7 @@ export function TabBar() {
           root-freeze latch and arms the sidebar's rename box. */}
       <button
         className="tab-new"
-        title="New note (⌘N)"
+        title={`New note (${shortcutLabel("⌘N")})`}
         aria-label="New note"
         onClick={() => {
           void useStore.getState().createNoteIn("");
