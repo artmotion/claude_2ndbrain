@@ -1,1 +1,1 @@
-docker compose --profile tunnel up -d --build
+docker compose --profile tunnel up -d
