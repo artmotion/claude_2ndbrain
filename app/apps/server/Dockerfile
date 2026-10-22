@@ -17,9 +17,10 @@
 
 # Debian (glibc) images throughout, never Alpine/musl: the owner does not run
 # important software on musl, and native modules (argon2) use their glibc builds.
+# Debian 13 (trixie) rather than 12: far fewer open CVEs in the base packages.
 
 # ---- build: install workspace deps, compile, prune to a deployable bundle --
-FROM node:22-bookworm-slim AS build
+FROM node:22-trixie-slim AS build
 # corepack reads the pinned pnpm version from package.json's packageManager
 # field, so the build always uses the same pnpm as CI and local dev.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -44,12 +45,18 @@ RUN pnpm --filter server run build
 RUN pnpm --filter server --prod deploy --legacy /out
 
 # ---- runtime: node + the deployed bundle, no package manager ---------------
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-trixie-slim AS runtime
 ENV NODE_ENV=production
 # curl only for the container health check (GET /health); slim ships none.
+# npm, npx, corepack and yarn ship with the base image but nothing here runs
+# them; removing them drops their bundled dependencies (and those CVEs) too.
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends curl ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && rm -rf /usr/local/lib/node_modules /opt/yarn-* \
+      /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+      /usr/local/bin/yarn /usr/local/bin/yarnpkg
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
 # Run as the image's unprivileged `node` user, not root.

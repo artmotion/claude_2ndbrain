@@ -74,7 +74,7 @@ describe("notes batch registration", () => {
     // 3 rows, 1 broadcast: per-item broadcasts would cost a per-subscriber ACL
     // recompute each for one logical change.
     expect(rec.registryBroadcasts.length).toBe(1);
-    const { rows } = await pool.query("SELECT rel_path FROM notes WHERE vault_id = $1 ORDER BY rel_path", [vault]);
+    const { rows } = await pool.query("SELECT rel_path FROM notes WHERE vault_id = $1 ORDER BY rel_path COLLATE \"C\"", [vault]);
     expect(rows.map((r) => r.rel_path)).toEqual(["Docs/b.md", "Docs/c.md", "a.md"]);
   });
 
