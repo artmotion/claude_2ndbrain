@@ -62,11 +62,9 @@ docker compose pull && docker compose up -d --build   # upgrade
 ```
 
 **Back up `db_volume`.** It holds every note's CRDT history, accounts,
-permissions and (unless you use MinIO) attachments — the server's copy of your
-team's writing. The server container itself keeps nothing on disk; with the
-`minio` profile, attachment bytes go to `data/data_volume`. Both live in the
-project root's `data/` folder, which git ignores (change them with `DB_VOLUME` /
-`DATA_VOLUME`), so
+permissions and attachments — the server's copy of your team's writing. The
+server container itself keeps nothing on disk. It lives in the project root's
+`data/` folder, which git ignores (change it with `DB_VOLUME`), so
 they survive restarts, rebuilds and `docker compose down -v`. The host port is
 `PUBLIC_PORT` (default 3010). Note that each desktop client also keeps
 its own `.md` files on disk, so a total server loss is recoverable from any

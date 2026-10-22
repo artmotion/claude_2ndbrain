@@ -34,9 +34,8 @@ docker compose ps       # postgres + server: healthy
 ```
 
 - **Data** lives in `data/` at the project root (git-ignored): `data/db_volume`
-  holds Postgres (notes, accounts, permissions and, by default, attachments),
-  `data/data_volume` holds MinIO's attachment bytes when you use the `minio`
-  profile. Override with `DB_VOLUME` / `DATA_VOLUME`. Back up `db_volume`.
+  holds Postgres (notes, accounts, permissions and, by default, attachments).
+  Override with `DB_VOLUME`. Back up `db_volume`.
 - **Port:** the server listens on 3010 inside the container; `PUBLIC_PORT`
   picks the host port and `BIND_ADDR` the host address (default `127.0.0.1`).
 - **Updating:** `git pull && docker compose up -d --build`; migrations run
@@ -218,19 +217,9 @@ The server **fails closed**: `BLOB_STORAGE=s3` with any of the three required
 vars missing is a fatal startup error naming what is absent, not a silent
 fallback to storing bytes in the database.
 
-The Compose bundle ships a MinIO service behind a profile, so nothing about
-`docker compose up -d` changes unless you ask for it:
-
-```bash
-docker compose --profile minio up -d minio
-docker compose exec minio mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-docker compose exec minio mc mb local/secondbrain
-```
-
-Then uncomment the `S3_*` block in `x-server-env` and restart the server. Read
-the comments above the `minio` service before you do — the endpoint you sign
-has to be one your CLIENTS can reach, which is not the same as one the server
-can reach.
+The Compose bundle does not ship an object store: add `BLOB_STORAGE: s3` and
+the `S3_*` variables to `x-server-env` for a bucket you run or rent. The endpoint you sign has to be
+one your CLIENTS can reach, which is not the same as one the server can reach.
 
 ### Bucket CORS
 

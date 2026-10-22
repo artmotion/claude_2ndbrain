@@ -15,11 +15,8 @@ import { BlobStoreError } from "../src/blobs/store.js";
  * gateway that rejects the SDK's default CRC32 trailer, a presign whose signed
  * `content-length` is not actually enforced, a Range request a gateway ignores.
  *
- * To run it (MinIO, from `deploy/compose/`):
- *
- *   docker compose --profile minio up -d minio
- *   docker compose exec minio mc alias set local http://localhost:9000 <user> <password>
- *   docker compose exec minio mc mb local/secondbrain-test
+ * To run it, start any S3-compatible store on localhost:9000 (e.g. a MinIO
+ * container) and create the bucket `secondbrain-test` in it.
  *
  *   S3_TEST_ENDPOINT=http://localhost:9000 \
  *   S3_TEST_BUCKET=secondbrain-test \
