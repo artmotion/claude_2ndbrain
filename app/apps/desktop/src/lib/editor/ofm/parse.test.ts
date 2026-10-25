@@ -116,3 +116,15 @@ describe("#tags", () => {
     expect(isTag("a `#tag` b")).toBe(false);
   });
 });
+
+describe("#tag inside a wiki-link", () => {
+  // Must agree with Rust `parse.rs` (`a_wikilink_hash_is_not_a_tag`).
+  it("`[[#Heading]]` and `[[Note #Heading]]` are heading links, not tags", () => {
+    expect(nodes("see [[#Heading]] here")).not.toContain("Hashtag");
+    expect(nodes("[[Note #Heading]]")).not.toContain("Hashtag");
+    expect(textOf("[[Note]] #real", "Hashtag")).toBe("#real");
+    expect(textOf("[#bracketed]", "Hashtag")).toBe("#bracketed");
+    // An unclosed `[[` is not a link, so the tag stands.
+    expect(textOf("[[#open", "Hashtag")).toBe("#open");
+  });
+});

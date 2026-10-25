@@ -76,6 +76,29 @@ export function isWikilinkResolved(inner: string, titles: readonly NoteTitle[]):
   return idx.titles.has(lower);
 }
 
+/**
+ * The note a link's inner text opens, by the same three rules — or null (also
+ * for a binary target, which `titles` cannot see). The anchor cache and the
+ * `[[Note#` autocomplete use it to find the note whose headings to offer
+ * without a round trip per keystroke. Ties go to the first row in `titles`
+ * order, which is not necessarily Rust's `LIMIT 1` pick; callers that open
+ * something still ask Rust.
+ */
+export function resolveTitle(inner: string, titles: readonly NoteTitle[]): NoteTitle | null {
+  const target = wikilinkTarget(inner).toLowerCase();
+  if (!target) return null;
+  const md = titles.filter((t) => t.path.toLowerCase().endsWith(".md"));
+  const exact = md.find((t) => t.path.toLowerCase().slice(0, -3) === target);
+  if (exact) return exact;
+  const base = target.slice(target.lastIndexOf("/") + 1);
+  const byBase = md.find((t) => {
+    const stem = t.path.toLowerCase().slice(0, -3);
+    return stem.slice(stem.lastIndexOf("/") + 1) === base;
+  });
+  if (byBase) return byBase;
+  return titles.find((t) => t.title && t.title.toLowerCase() === target) ?? null;
+}
+
 /** What a click does: open the resolved path, or nothing at all. */
 export function wikilinkClickAction(
   resolved: { path: string } | null | undefined,

@@ -13,6 +13,11 @@ import { loadTypes } from "../lib/frontmatter/types";
 import { dispatchAfterCommit } from "../lib/editor/effectDispatch";
 import { wikilinkTitlesChanged } from "../lib/editor/wikilinks";
 import { wikilinkClickAction } from "../lib/editor/wikilinkResolve";
+import { revealAnchor } from "../lib/editor/anchorReveal";
+import { parseWikilinkInner, type Subpath } from "../lib/links/anchors";
+import { anchorsChanged, configureAnchorCache, onAnchorCacheChange } from "../lib/links/anchorCache";
+import { createLinkHost } from "../lib/links/linkHost";
+import { toast } from "../lib/toast";
 import { setActiveNote } from "../lib/editor/activeView";
 import { bindActiveNote } from "../lib/editor/activeNoteBinding";
 import { saveAttachment } from "../lib/attachments";
@@ -458,6 +463,8 @@ export function Editor() {
     let unsubscribeTitles: (() => void) | null = null;
     let unregisterLiveView: (() => void) | null = null;
     let cancelTitlesDispatch: (() => void) | null = null;
+    let unsubscribeAnchors: (() => void) | null = null;
+    let unlistenAnchorFiles: (() => void) | null = null;
     // The editor pane is empty until CodeMirror is constructed below, and
     // getting there means opening the bridge, hydrating the CRDT from SQLite
     // and — for a synced note — waiting out the provider's first sync. On a
@@ -465,12 +472,34 @@ export function Editor() {
     setMountedNotePath(null);
     setReadyNotePath(null);
 
-    const navigate = async (target: string) => {
+    // Jump to a heading/block of the note in THIS view; say so when it is gone.
+    const revealHere = (subpath: Subpath) => {
+      if (!view || cancelled) return;
+      if (!revealAnchor(view, subpath)) {
+        toast(
+          subpath.kind === "block" ? "That block isn't in this note any more" : "That heading isn't in this note any more",
+          "neutral",
+        );
+      }
+    };
+
+    const navigate = async (inner: string) => {
       try {
+        const { target, subpath } = parseWikilinkInner(inner);
+        // `[[#Heading]]` — a place in this note.
+        if (target === "") {
+          if (subpath) revealHere(subpath);
+          return;
+        }
         // A link to a note that does not exist does nothing — it is greyed out
         // in the editor, and a click never creates a note at the vault root.
         const action = wikilinkClickAction(await ipc.resolveWikilink(target));
         if (action.kind === "open") {
+          if (action.path.toLowerCase() === notePath.toLowerCase()) {
+            if (subpath) revealHere(subpath);
+            return;
+          }
+          useStore.getState().setPendingReveal(subpath ? { path: action.path, subpath } : null);
           await useStore.getState().openNoteByPath(action.path);
         } else {
           console.debug("wiki-link has no target", target);
@@ -580,6 +609,7 @@ export function Editor() {
           compartment: lineNumberCompartment,
         },
         onNavigate: (t) => void navigate(t),
+        links: createLinkHost(notePath, epoch),
         resolveAsset: makeResolveAsset(
           useStore.getState().vault?.path ?? null,
           notePath
@@ -639,10 +669,38 @@ export function Editor() {
           { isLive: () => !cancelled && viewRef.current === titlesView },
         );
       });
+      // A target's indexed headings/blocks arriving (or changing) can flip a
+      // `[[Note#Heading]]` between found and missing: repaint like a title move.
+      configureAnchorCache(useStore.getState().vault?.path ?? null, (p) => ipc.listNoteAnchors(p));
+      unsubscribeAnchors = onAnchorCacheChange(() => {
+        cancelTitlesDispatch?.();
+        cancelTitlesDispatch = dispatchAfterCommit(
+          titlesView,
+          { effects: wikilinkTitlesChanged.of(null) },
+          { isLive: () => !cancelled && viewRef.current === titlesView },
+        );
+      });
+      void ipc
+        .onFilesChanged((changes) => anchorsChanged(changes.map((c) => c.path)))
+        .then((un) => {
+          if (cancelled) un();
+          else unlistenAnchorFiles = un;
+        })
+        .catch(() => {});
       setMountedNotePath(notePath);
 
+      // A `[[ThisNote#Heading]]` click from another note: jump once the content
+      // is in (a cold synced note mounts empty and fills during the handshake).
+      const consumePendingReveal = () => {
+        const pending = useStore.getState().pendingReveal;
+        if (!pending || pending.path.toLowerCase() !== notePath.toLowerCase()) return;
+        useStore.getState().setPendingReveal(null);
+        revealHere(pending.subpath);
+      };
       const reveal = () => {
-        if (!cancelled) setReadyNotePath(notePath);
+        if (cancelled) return;
+        setReadyNotePath(notePath);
+        consumePendingReveal();
       };
       const readyAtMount = noteContentReady({
         textLength: bridge.text.length,
@@ -704,6 +762,8 @@ export function Editor() {
     return () => {
       cancelled = true;
       unsubscribeTitles?.();
+      unsubscribeAnchors?.();
+      unlistenAnchorFiles?.();
       cancelTitlesDispatch?.();
       if (onInitialContent) bridgeRef.current?.text.unobserve(onInitialContent);
       if (onAwarenessChange && awareness) awareness.off("change", onAwarenessChange);

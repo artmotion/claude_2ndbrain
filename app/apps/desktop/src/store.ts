@@ -120,6 +120,7 @@ import {
 } from "./lib/vault/missingFolder";
 import { playJoinChime } from "./lib/celebrate/celebrate";
 import { dismissToast, toast } from "./lib/toast";
+import type { Subpath } from "./lib/links/anchors";
 import { isEditorNote } from "./lib/notePath";
 import { isNoteExt } from "./lib/formats";
 import { parseNoteLink } from "./lib/shareLink";
@@ -693,6 +694,14 @@ interface AppStore {
    */
   pendingTitleFocus: string | null;
   setPendingTitleFocus: (path: string | null) => void;
+  /**
+   * The heading or block a `[[Note#…]]` click is on its way to. Set before the
+   * note opens; the editor consumes it once that note's content is in
+   * (`Editor.tsx` → `lib/editor/anchorReveal.ts`). A flag for the same reason
+   * as `pendingTitleFocus`: the view exists several awaits after the click.
+   */
+  pendingReveal: { path: string; subpath: Subpath } | null;
+  setPendingReveal: (reveal: { path: string; subpath: Subpath } | null) => void;
   /** The path the sidebar just revealed, for a one-shot highlight pulse.
    *  Cleared by a timer in the FileTree; read per-row as a BOOLEAN so a pulse on
    *  one row does not re-render the other 6,000. */
@@ -2071,6 +2080,7 @@ export const useStore = create<AppStore>((set, get) => ({
   vaultAppearance: {},
   themeMode: "system",
   pendingTitleFocus: null,
+  pendingReveal: null,
   treeSort: readTreeSort(),
   folderSorts: {},
   memberJoined: null,
@@ -2614,6 +2624,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   setPendingTitleFocus: (path) => set({ pendingTitleFocus: path }),
+  setPendingReveal: (reveal) => set({ pendingReveal: reveal }),
 
   requestReveal: (path, opts) => {
     set((s) => ({

@@ -732,6 +732,26 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
     color: "var(--text-faint)",
     padding: "0 0.15em",
   },
+  // A ` ^block-id` marker on the line being edited (folded away elsewhere).
+  ".cm-block-id": {
+    color: "var(--text-faint)",
+    fontSize: "0.85em",
+  },
+  // `[[Note#^id]]` off the caret: the block's first words, quoted-looking.
+  ".cm-wikilink-block": {
+    fontStyle: "italic",
+  },
+  // The note exists, the heading/block it names does not: still a link (it
+  // opens the note), marked with a dotted underline instead of greyed out.
+  ".cm-wikilink.cm-wikilink-anchor-missing": {
+    textDecoration: "underline dotted",
+    textUnderlineOffset: "3px",
+  },
+  // A `[[Note#Heading]]` jump lands here (lib/editor/anchorReveal.ts).
+  ".cm-line.cm-anchor-flash": {
+    backgroundColor: "var(--accent-soft)",
+    transition: "background-color var(--t-slow, 600ms) var(--ease)",
+  },
 
   // ---- YAML frontmatter (see lib/editor/frontmatter.ts) ----
   //
@@ -1006,6 +1026,32 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
     fontStyle: "normal",
     marginLeft: "var(--sp-2)",
     fontSize: "var(--fs-sm)",
+  },
+  // `[[` completion: a quiet glyph per kind (note, heading, block) and group
+  // headers for the headings/blocks stage (lib/editor/wikilinks.ts).
+  ".cm-completionIcon-note, .cm-completionIcon-heading, .cm-completionIcon-block, .cm-completionIcon-info": {
+    color: "var(--text-faint)",
+    opacity: "1",
+    width: "1.4em",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--fs-sm)",
+  },
+  ".cm-completionIcon-note:after": { content: "'[['" },
+  ".cm-completionIcon-heading:after": { content: "'#'" },
+  ".cm-completionIcon-block:after": { content: "'^'" },
+  ".cm-completionIcon-info:after": { content: "'i'" },
+  ".cm-tooltip-autocomplete li:has(.cm-completionIcon-info)": {
+    color: "var(--text-tertiary)",
+    fontStyle: "italic",
+  },
+  ".cm-tooltip-autocomplete completion-section": {
+    display: "block",
+    padding: "var(--sp-1) var(--sp-3) 0",
+    color: "var(--text-faint)",
+    fontSize: "var(--fs-xs)",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    borderBottom: "none",
   },
 };
 

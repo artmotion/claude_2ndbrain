@@ -6,7 +6,8 @@ use crate::attachments::{self, AttachmentMeta, FileStat};
 use crate::error::{io_ctx, AppError, AppResult};
 use crate::import_export::{self, ImportSummary};
 use crate::index::{
-    Backlink, BootstrapRow, FileRow, FileText, GraphEdge, Index, NoteMeta, NoteTitle, ResolvedLink,
+    Backlink, BootstrapRow, FileRow, FileText, GraphEdge, Index, NoteAnchor, NoteMeta, NoteTitle,
+    ResolvedLink,
     SearchResult, YjsPruneReport, YjsState, YjsStateVector,
 };
 use crate::notefile::{self, WriteOutcome};
@@ -2153,6 +2154,18 @@ pub async fn get_note_meta(
     let (_, index) = require_vault(&state)?;
     let guard = index.lock().unwrap();
     guard.get_note_meta(&path)
+}
+
+/// The headings and `^block-id`s of one note — `[[Note#…]]` autocomplete and
+/// the editor's broken-anchor check.
+#[tauri::command]
+pub async fn list_note_anchors(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<Vec<NoteAnchor>> {
+    let (_, index) = require_vault(&state)?;
+    let guard = index.lock().unwrap();
+    guard.list_note_anchors(&path)
 }
 
 #[tauri::command]

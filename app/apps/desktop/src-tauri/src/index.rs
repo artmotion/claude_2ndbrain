@@ -212,6 +212,16 @@ pub struct Backlink {
     pub link_text: String,
 }
 
+/// One heading or `^block-id` of a note (see `parse.rs parse_anchors`).
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct NoteAnchor {
+    pub kind: String,
+    pub key: String,
+    pub text: String,
+    pub level: i64,
+    pub line: i64,
+}
+
 /// One resolved directed edge of the note graph (`source` links to `target`,
 /// both note ids). Serialized field names match the front-end `GraphEdge`.
 #[derive(Debug, Serialize, Clone)]
@@ -341,6 +351,19 @@ impl Index {
     }
 
     fn migrate(&self) -> AppResult<()> {
+        // `note_anchors` arrived after notes were already indexed. The hash
+        // gate (and `rebuild`'s mtime skip) would leave every unchanged note
+        // without anchor rows forever, so the first open after the upgrade
+        // forgets the gate keys once and lets the next pass re-parse.
+        let anchors_existed: bool = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'note_anchors'",
+                [],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
         self.conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS notes (
@@ -519,8 +542,26 @@ impl Index {
                 mtime_ns INTEGER NOT NULL,
                 sha256   TEXT NOT NULL
             );
+
+            -- Headings and `^block-id`s a `[[Note#…]]` link can point at
+            -- (`parse.rs parse_anchors`). Derived per note like `links`.
+            -- `key` is the comparison form: normalized heading text, or the
+            -- block id lowercased.
+            CREATE TABLE IF NOT EXISTS note_anchors (
+                note_id TEXT NOT NULL,
+                kind    TEXT NOT NULL,
+                key     TEXT NOT NULL,
+                text    TEXT NOT NULL,
+                level   INTEGER NOT NULL,
+                line    INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_note_anchors_note ON note_anchors(note_id);
             "#,
         )?;
+        if !anchors_existed {
+            self.conn
+                .execute("UPDATE notes SET sha256 = NULL, mtime = -1", [])?;
+        }
         Ok(())
     }
 
@@ -972,6 +1013,7 @@ impl Index {
         tx.execute("DELETE FROM notes_fts WHERE rowid = ?1", params![rowid])?;
         tx.execute("DELETE FROM note_tags WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM links WHERE src_note_id = ?1", params![id])?;
+        tx.execute("DELETE FROM note_anchors WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM notes WHERE id = ?1", params![id])?;
         Ok(())
     }
@@ -1421,6 +1463,7 @@ impl Index {
         )?;
         tx.execute("DELETE FROM note_tags WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM links WHERE src_note_id = ?1", params![id])?;
+        tx.execute("DELETE FROM note_anchors WHERE note_id = ?1", params![id])?;
         // Deliberately never `Unchanged`: the oversized path has no sha to gate
         // on (it stores NULL), so it keeps rewriting its cheap title-only rows.
         Ok(IndexedNote::Indexed(id))
@@ -1571,6 +1614,16 @@ impl Index {
                 "INSERT INTO links (src_note_id, dst_note_id, dst_path_raw, link_text, position)
                  VALUES (?1, NULL, ?2, ?3, ?4)",
                 params![id, link.target, link.raw, link.position],
+            )?;
+        }
+
+        // Anchors (headings + block ids).
+        tx.execute("DELETE FROM note_anchors WHERE note_id = ?1", params![id])?;
+        for a in &parsed.anchors {
+            tx.execute(
+                "INSERT INTO note_anchors (note_id, kind, key, text, level, line)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, a.kind, a.key, a.text, a.level, a.line],
             )?;
         }
 
@@ -1929,6 +1982,29 @@ impl Index {
     }
 
     /// Notes that link *to* the given note id.
+    /// The headings and block ids of the note at `path`, in line order. Empty
+    /// for an unknown path (a link to a note the index does not hold has no
+    /// anchors to offer, and that is not an error).
+    pub fn list_note_anchors(&self, path: &str) -> AppResult<Vec<NoteAnchor>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT a.kind, a.key, a.text, a.level, a.line
+               FROM note_anchors a
+               JOIN notes n ON n.id = a.note_id
+              WHERE lower(n.path) = lower(?1)
+              ORDER BY a.line, a.kind",
+        )?;
+        let rows = stmt.query_map(params![path], |r| {
+            Ok(NoteAnchor {
+                kind: r.get(0)?,
+                key: r.get(1)?,
+                text: r.get(2)?,
+                level: r.get(3)?,
+                line: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
     pub fn get_backlinks(&self, note_id: &str) -> AppResult<Vec<Backlink>> {
         let mut stmt = self.conn.prepare(
             "SELECT n.id, n.path, n.title, l.link_text
@@ -4534,6 +4610,60 @@ mod tests {
         idx.rebuild(&v).unwrap();
         let id2 = idx.get_note_meta("Alpha.md").unwrap().unwrap().id;
         assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn list_note_anchors_returns_headings_and_block_ids_in_line_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let v = tmp.path().to_path_buf();
+        std::fs::write(
+            v.join("Plan.md"),
+            "# Plan\n\nGoal text ^goal1\n\n## Next Steps\n- one\n",
+        )
+        .unwrap();
+        let idx = Index::open(&v).unwrap();
+        idx.rebuild(&v).unwrap();
+        let a = idx.list_note_anchors("plan.md").unwrap();
+        let got: Vec<(&str, &str, i64, i64)> = a
+            .iter()
+            .map(|x| (x.kind.as_str(), x.text.as_str(), x.level, x.line))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("heading", "Plan", 1, 1),
+                ("block", "Goal text", 0, 3),
+                ("heading", "Next Steps", 2, 5),
+            ]
+        );
+        assert_eq!(a[1].key, "goal1");
+        assert_eq!(a[2].key, "next steps");
+        assert!(idx.list_note_anchors("missing.md").unwrap().is_empty());
+
+        // Re-indexing replaces the rows; deleting the note drops them.
+        std::fs::write(v.join("Plan.md"), "## Only\n").unwrap();
+        idx.index_note(&v, &v.join("Plan.md")).unwrap();
+        let a = idx.list_note_anchors("Plan.md").unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].text, "Only");
+    }
+
+    #[test]
+    fn upgrade_without_note_anchors_reparses_unchanged_notes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let v = tmp.path().to_path_buf();
+        std::fs::write(v.join("A.md"), "# Heading A\n").unwrap();
+        {
+            let idx = Index::open(&v).unwrap();
+            idx.rebuild(&v).unwrap();
+            // Simulate an index written by a build that predates the table.
+            idx.conn.execute_batch("DROP TABLE note_anchors;").unwrap();
+        }
+        let idx = Index::open(&v).unwrap();
+        idx.rebuild(&v).unwrap();
+        let a = idx.list_note_anchors("A.md").unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].text, "Heading A");
     }
 
     #[test]

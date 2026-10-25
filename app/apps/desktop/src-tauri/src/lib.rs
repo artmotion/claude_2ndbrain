@@ -290,6 +290,7 @@ pub fn run() {
             commands::graph_edges_for,
             commands::get_note_meta,
             commands::resolve_wikilink,
+            commands::list_note_anchors,
             commands::list_note_titles,
             commands::append_yjs_update,
             commands::load_yjs_state,

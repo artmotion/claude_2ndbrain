@@ -42,6 +42,22 @@ const BODY_CHAR = /[\p{L}\p{N}_/-]/u;
 /** The whole body: optional digits, then at least one non-digit, then anything. */
 const BODY = /^\d*[\p{L}_/-][\p{L}\p{N}_/-]*$/u;
 
+/**
+ * Is offset `at` of `text` (one inline section, i.e. a line or paragraph)
+ * inside a CLOSED `[[…]]`? A `#` there is a heading link — `[[#Heading]]`,
+ * `[[Note #Heading]]` — never a tag. Rust says the same by blanking every
+ * wiki-link before its tag scan (`parse.rs parse_note`).
+ */
+export function insideWikilink(text: string, at: number): boolean {
+  const re = /\[\[([^\]\n]+)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > at) return false;
+    if (at < m.index + m[0].length) return true;
+  }
+  return false;
+}
+
 export const ofmHashtag: MarkdownConfig = {
   defineNodes: [
     { name: "Hashtag", style: { "Hashtag/...": hashtagTag } },
@@ -54,6 +70,7 @@ export const ofmHashtag: MarkdownConfig = {
         if (next !== HASH) return -1;
         const before = cx.slice(pos - 1, pos);
         if (before && BEFORE_BLOCKS.test(before)) return -1;
+        if (insideWikilink(cx.slice(cx.offset, cx.end), pos - cx.offset)) return -1;
         let end = pos + 1;
         while (end < cx.end && BODY_CHAR.test(cx.slice(end, end + 1))) end++;
         if (!BODY.test(cx.slice(pos + 1, end))) return -1;
@@ -142,6 +159,11 @@ export function tagCompletions(opts: {
     // `a#b` is not a tag (see BEFORE_BLOCKS); don't offer one there either.
     const before = ctx.state.sliceDoc(Math.max(0, token.from - 1), token.from);
     if (before && BEFORE_BLOCKS.test(before)) return null;
+    // Inside an open `[[…` the `#` starts a heading link: the wiki-link source
+    // owns that list (see ../wikilinks.ts).
+    const line = ctx.state.doc.lineAt(token.from);
+    const lineBefore = line.text.slice(0, token.from - line.from);
+    if (/\[\[[^\]\n]*$/.test(lineBefore)) return null;
     const tags = opts.getTags();
     if (!tags.length) return null;
     return {

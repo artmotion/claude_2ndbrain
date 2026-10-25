@@ -38,7 +38,9 @@ import { tripleClickLine } from "./selection";
 import { slashCompletions } from "./slash";
 import { checkboxes, taskKeymap } from "./tasks";
 import { editorTheme, markdownHighlight } from "./theme";
-import { wikilinkCompletions, wikilinks } from "./wikilinks";
+import { anchorFlash } from "./anchorReveal";
+import { blockIdMarkers } from "./ofm/blockId";
+import { type LinkHost, wikilinkCompletions, wikilinks } from "./wikilinks";
 
 export interface CreateEditorOptions {
   doc: string;
@@ -49,6 +51,11 @@ export interface CreateEditorOptions {
    */
   getTags?: () => TagSuggestion[];
   onNavigate: (target: string) => void;
+  /**
+   * Other notes, for `[[Note#` completion, block ids and missing-anchor
+   * styling (see `LinkHost`). Omitted → only `[[#…]]` in this note completes.
+   */
+  links?: LinkHost;
   /** Phase-0 buffer callback; omitted for CRDT-managed notes (yCollab syncs). */
   onChange?: (doc: string) => void;
   /** Later phases (Yjs binding) append here. */
@@ -178,7 +185,7 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     autocompletion({
       override: [
         slashCompletions,
-        wikilinkCompletions({ getTitles: opts.getTitles, onNavigate: opts.onNavigate }),
+        wikilinkCompletions({ getTitles: opts.getTitles, onNavigate: opts.onNavigate, links: opts.links }),
         ...(opts.getTags ? [tagCompletions({ getTags: opts.getTags })] : []),
       ],
     }),
@@ -212,10 +219,14 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     smartPaste(opts.saveAttachment),
     ...(opts.copyAttachments ? [richNoteCopy(opts.copyAttachments.notePath, opts.copyAttachments.read)] : []),
     editorTheme,
-    wikilinks({ getTitles: opts.getTitles, onNavigate: opts.onNavigate }),
+    wikilinks({ getTitles: opts.getTitles, onNavigate: opts.onNavigate, links: opts.links }),
+    // The brief highlight a `[[Note#Heading]]` jump leaves (./anchorReveal.ts).
+    anchorFlash,
     // Callout tinting + tag pills. After livePreview, whose QuoteMark rule
     // hides the `>` a callout's marker line still carries.
     ...ofmDecorations,
+    // ` ^block-id` markers fold away off the active line (markdown only).
+    ...(plain ? [] : [blockIdMarkers]),
     // Fold placeholder + hover chevrons. The fold RANGES all come from
     // lang-markdown (see ./folding.ts); this only draws the affordance.
     ...folding,

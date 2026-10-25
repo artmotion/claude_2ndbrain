@@ -27,6 +27,24 @@ pub struct ParsedNote {
     pub frontmatter_json: Option<String>,
     /// The body used to feed FTS (frontmatter stripped).
     pub body: String,
+    /// Headings and `^block-id`s a link can point at (see [`parse_anchors`]).
+    pub anchors: Vec<ParsedAnchor>,
+}
+
+/// One link target INSIDE a note: a heading or a `^block-id`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedAnchor {
+    /// `"heading"` or `"block"`.
+    pub kind: &'static str,
+    /// The comparison key: [`normalize_heading`] of a heading's text, or a
+    /// block id lowercased.
+    pub key: String,
+    /// The heading text as written, or a block's short preview.
+    pub text: String,
+    /// Heading level 1–6; 0 for a block.
+    pub level: i64,
+    /// 1-based line (a block's FIRST line).
+    pub line: i64,
 }
 
 // `#tag`. This rule is shared, character for character, with the editor's
@@ -254,7 +272,11 @@ pub fn parse_note(content: &str, stem: &str) -> ParsedNote {
             tag_set.insert(t);
         }
     }
-    for cap in TAG_RE.captures_iter(body) {
+    // A `#` inside a closed `[[…]]` is a heading link (`[[#Heading]]`,
+    // `[[Note #Heading]]`), never a tag — the editor's hashtag parser skips the
+    // same span (`ofm/hashtag.ts insideWikilink`).
+    let tag_source = WIKILINK_RE.replace_all(body, " ");
+    for cap in TAG_RE.captures_iter(&tag_source) {
         tag_set.insert(cap[1].to_string());
     }
     let tags: Vec<String> = tag_set.into_iter().collect();
@@ -297,6 +319,7 @@ pub fn parse_note(content: &str, stem: &str) -> ParsedNote {
         links,
         frontmatter_json: fm_json,
         body: body.to_string(),
+        anchors: parse_anchors(content),
     }
 }
 
@@ -319,6 +342,7 @@ pub fn parse_plain(content: &str, stem: &str) -> ParsedNote {
         links: Vec::new(),
         frontmatter_json: None,
         body: content.to_string(),
+        anchors: Vec::new(),
     }
 }
 
@@ -331,6 +355,7 @@ pub fn parse_html(content: &str, stem: &str) -> ParsedNote {
         links: Vec::new(),
         frontmatter_json: None,
         body: strip_html_tags(content),
+        anchors: Vec::new(),
     }
 }
 
@@ -377,8 +402,255 @@ pub fn strip_html_tags(html: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+// ---- Anchors: headings and `^block-id`s ------------------------------------
+//
+// ONE contract with the editor (`src/lib/links/anchors.ts extractAnchors`) and
+// the server (`apps/server/src/markdown/sections.ts`), pinned by the shared
+// fixture `src/lib/links/__fixtures__/anchors.json` (see the test below). The
+// rules are line-based on purpose, so all three can say the same thing:
+// frontmatter and fenced code are skipped; a heading is an ATX line with ≤3
+// leading spaces and non-empty text; a block is a paragraph or one list item;
+// its id is a trailing ` ^id` on its last line, or a `^id` line right after it.
+
+static HEADING_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$").unwrap());
+static CLOSING_HASHES_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?:^|[ \t]+)#+$").unwrap());
+static LIST_ITEM_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)").unwrap());
+static THEMATIC_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$").unwrap()
+});
+static STANDALONE_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^[ \t]*\^([A-Za-z0-9-]+)[ \t]*$").unwrap());
+static TRAILING_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?:^|[ \t])\^([A-Za-z0-9-]+)[ \t]*$").unwrap());
+static HEADING_UNSAFE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"%%|[#|^:\[\]\\]").unwrap());
+static INNER_WS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[ \t]+").unwrap());
+static WS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
+static QUOTE_PREFIX_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[ \t]*(?:>[ \t]?)+").unwrap());
+static TASK_PREFIX_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\[[ xX]\][ \t]+").unwrap());
+
+const ANCHOR_PREVIEW_MAX: usize = 80;
+
+/// The comparison form of a heading (`anchors.ts normalizeHeading`).
+pub fn normalize_heading(s: &str) -> String {
+    let spaced = HEADING_UNSAFE_RE.replace_all(s, " ");
+    WS_RE.replace_all(&spaced, " ").trim().to_lowercase()
+}
+
+fn anchor_heading(line: &str) -> Option<(i64, String)> {
+    let cap = HEADING_RE.captures(line)?;
+    let raw = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+    let body = CLOSING_HASHES_RE.replace(raw, "");
+    let body = body.trim();
+    if body.is_empty() {
+        return None;
+    }
+    let body = INNER_WS_RE.replace_all(body, " ").to_string();
+    Some((cap[1].len() as i64, body))
+}
+
+fn anchor_preview(first: &str) -> String {
+    let t = QUOTE_PREFIX_RE.replace(first, "");
+    let t = LIST_ITEM_RE.replace(&t, "");
+    let t = TASK_PREFIX_RE.replace(&t, "");
+    let t = TRAILING_ID_RE.replace(&t, "");
+    let t = t.trim();
+    if t.chars().count() > ANCHOR_PREVIEW_MAX {
+        let cut: String = t.chars().take(ANCHOR_PREVIEW_MAX - 1).collect();
+        format!("{}…", cut.trim_end())
+    } else {
+        t.to_string()
+    }
+}
+
+fn anchor_fence(line: &str) -> Option<(char, usize, &str)> {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    let ch = trimmed.chars().next()?;
+    if ch != '`' && ch != '~' {
+        return None;
+    }
+    let run = trimmed.chars().take_while(|c| *c == ch).count();
+    if run < 3 {
+        return None;
+    }
+    Some((ch, run, &trimmed[run..]))
+}
+
+/// Every heading and id'd block of a note's FULL content (frontmatter included,
+/// so line numbers are the file's).
+pub fn parse_anchors(content: &str) -> Vec<ParsedAnchor> {
+    let lines: Vec<&str> = content
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l))
+        .collect();
+    let mut start = 0usize;
+    if lines.first().map(|l| l.trim_end()) == Some("---") {
+        if let Some(end) = lines
+            .iter()
+            .enumerate()
+            .skip(1)
+            .find(|(_, l)| matches!(l.trim_end(), "---" | "..."))
+        {
+            start = end.0 + 1;
+        }
+    }
+
+    let mut out: Vec<ParsedAnchor> = Vec::new();
+    // (first line index, last line index) of the open block.
+    let mut open: Option<(usize, usize)> = None;
+    // The last closed block WITHOUT an id, while a `^id` line may still name it.
+    let mut last_closed: Option<(usize, usize)> = None;
+    let mut fence: Option<(char, usize)> = None;
+
+    let block = |first: usize, id: &str| ParsedAnchor {
+        kind: "block",
+        key: id.to_lowercase(),
+        text: anchor_preview(lines[first]),
+        level: 0,
+        line: first as i64 + 1,
+    };
+    let close = |open: &mut Option<(usize, usize)>,
+                     last_closed: &mut Option<(usize, usize)>,
+                     out: &mut Vec<ParsedAnchor>| {
+        if let Some((first, last)) = open.take() {
+            if let Some(cap) = TRAILING_ID_RE.captures(lines[last]) {
+                out.push(block(first, &cap[1]));
+                *last_closed = None;
+            } else {
+                *last_closed = Some((first, last));
+            }
+        }
+    };
+
+    for i in start..lines.len() {
+        let line = lines[i];
+        let f = anchor_fence(line);
+        if let Some((ch, run)) = fence {
+            if let Some((fch, frun, rest)) = f {
+                if fch == ch && frun >= run && rest.trim().is_empty() {
+                    fence = None;
+                }
+            }
+            continue;
+        }
+        if let Some((fch, frun, rest)) = f {
+            if !(fch == '`' && rest.contains('`')) {
+                close(&mut open, &mut last_closed, &mut out);
+                last_closed = None;
+                fence = Some((fch, frun));
+                continue;
+            }
+        }
+        if line.trim().is_empty() {
+            close(&mut open, &mut last_closed, &mut out);
+            continue;
+        }
+        if let Some((level, text)) = anchor_heading(line) {
+            close(&mut open, &mut last_closed, &mut out);
+            last_closed = None;
+            out.push(ParsedAnchor {
+                kind: "heading",
+                key: normalize_heading(&text),
+                text,
+                level,
+                line: i as i64 + 1,
+            });
+            continue;
+        }
+        if let Some(cap) = STANDALONE_ID_RE.captures(line) {
+            close(&mut open, &mut last_closed, &mut out);
+            if let Some((first, _)) = last_closed.take() {
+                out.push(block(first, &cap[1]));
+            }
+            continue;
+        }
+        if THEMATIC_RE.is_match(line) {
+            close(&mut open, &mut last_closed, &mut out);
+            last_closed = None;
+            continue;
+        }
+        if LIST_ITEM_RE.is_match(line) {
+            close(&mut open, &mut last_closed, &mut out);
+            open = Some((i, i));
+            continue;
+        }
+        open = match open {
+            Some((first, _)) => Some((first, i)),
+            None => Some((i, i)),
+        };
+    }
+    close(&mut open, &mut last_closed, &mut out);
+    // Blocks are pushed when they CLOSE, so a standalone id can land after a
+    // later heading's row would have; order by line like the editor does.
+    out.sort_by_key(|a| a.line);
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    /// The shared anchor fixture: the editor (`anchors.test.ts`) and the server
+    /// (`sections.test.ts`) run exactly these cases too.
+    #[test]
+    fn parse_anchors_matches_the_shared_fixture() {
+        let raw = include_str!("../../src/lib/links/__fixtures__/anchors.json");
+        let fixture: serde_json::Value = serde_json::from_str(raw).unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let anchors = parse_anchors(case["text"].as_str().unwrap());
+            let headings: Vec<(i64, String, i64)> = anchors
+                .iter()
+                .filter(|a| a.kind == "heading")
+                .map(|a| (a.level, a.text.clone(), a.line))
+                .collect();
+            let want_h: Vec<(i64, String, i64)> = case["headings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| {
+                    (
+                        h["level"].as_i64().unwrap(),
+                        h["text"].as_str().unwrap().to_string(),
+                        h["line"].as_i64().unwrap(),
+                    )
+                })
+                .collect();
+            assert_eq!(headings, want_h, "headings: {name}");
+            let blocks: Vec<(String, i64)> = anchors
+                .iter()
+                .filter(|a| a.kind == "block")
+                .map(|a| (a.key.clone(), a.line))
+                .collect();
+            let want_b: Vec<(String, i64)> = case["blocks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|b| (b["id"].as_str().unwrap().to_lowercase(), b["line"].as_i64().unwrap()))
+                .collect();
+            assert_eq!(blocks, want_b, "blocks: {name}");
+        }
+    }
+
+    #[test]
+    fn normalize_heading_matches_the_editor() {
+        assert_eq!(normalize_heading("  Über  die | Brücke "), "über die brücke");
+        assert_eq!(normalize_heading("A: B"), "a b");
+    }
+
+    #[test]
+    fn a_wikilink_hash_is_not_a_tag() {
+        // `[[#Heading]]` links a heading in the same note; `[` before `#` used
+        // to make `#Heading` a tag. Must agree with `ofm/hashtag.ts`.
+        assert!(tags_of("see [[#Heading]] here").is_empty());
+        assert!(tags_of("[[Note #Heading]]").is_empty());
+        assert!(tags_of("[[Note#^abc123]]").is_empty());
+        assert_eq!(tags_of("[[Note]] #real"), vec!["real".to_string()]);
+        assert_eq!(tags_of("[#bracketed]"), vec!["bracketed".to_string()]);
+    }
+
     use super::*;
 
     #[test]

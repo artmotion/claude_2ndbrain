@@ -606,6 +606,21 @@ export const getNoteMeta = (path: string) =>
   invoke<NoteMeta | null>("get_note_meta", { path });
 export const resolveWikilink = (name: string) =>
   invoke<ResolvedLink | null>("resolve_wikilink", { name });
+/** One heading or `^block-id` of a note, as the index holds it
+ *  (`parse.rs parse_anchors`; the same rules as `lib/links/anchors.ts`). */
+export interface IndexedAnchor {
+  kind: "heading" | "block";
+  /** Normalized heading text, or the block id lowercased. */
+  key: string;
+  /** Heading text, or a block's short preview. */
+  text: string;
+  /** 1–6 for a heading, 0 for a block. */
+  level: number;
+  /** 1-based line. */
+  line: number;
+}
+export const listNoteAnchors = (path: string) =>
+  invoke<IndexedAnchor[]>("list_note_anchors", { path });
 export const listNoteTitles = (expectedEpoch?: VaultEpoch) =>
   invoke<NoteTitle[]>("list_note_titles", { expectedEpoch: expectedEpoch ?? null });
 

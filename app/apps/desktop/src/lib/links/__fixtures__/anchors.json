@@ -1,0 +1,66 @@
+{
+  "_comment": "One contract, three parsers: src/lib/links/anchors.ts (desktop TS), src-tauri/src/parse.rs parse_anchors (desktop Rust index) and apps/server/src/markdown/sections.ts (MCP). Each case lists every heading (level, text, 1-based line) and every block id (id, 1-based line of the block's FIRST line). `candidates` (desktop only) lists the first lines of id-less blocks.",
+  "cases": [
+    {
+      "name": "headings with closing hashes and nesting",
+      "text": "# Title\n\nIntro text.\n\n## Part A ##\n\n### Detail\n\n## Part B\n",
+      "headings": [
+        { "level": 1, "text": "Title", "line": 1 },
+        { "level": 2, "text": "Part A", "line": 5 },
+        { "level": 3, "text": "Detail", "line": 7 },
+        { "level": 2, "text": "Part B", "line": 9 }
+      ],
+      "blocks": [],
+      "candidates": [3]
+    },
+    {
+      "name": "frontmatter and fenced code are skipped",
+      "text": "---\ntitle: x\n# not a heading\n---\n# Real\n\n```md\n# fenced\nline ^fake1\n```\n\n~~~\n## also fenced\n~~~\n",
+      "headings": [{ "level": 1, "text": "Real", "line": 5 }],
+      "blocks": [],
+      "candidates": []
+    },
+    {
+      "name": "trailing and standalone block ids",
+      "text": "First paragraph\nstill first ^para1\n\n- item one ^li-1\n- item two\n  continued\n\nA quote-free paragraph\n\n^solo2\n\nLast one\n",
+      "headings": [],
+      "blocks": [
+        { "id": "para1", "line": 1 },
+        { "id": "li-1", "line": 4 },
+        { "id": "solo2", "line": 8 }
+      ],
+      "candidates": [5, 12]
+    },
+    {
+      "name": "not headings: no space, too deep, indented, empty",
+      "text": "#tag line\n####### seven\n    # indented code\n#\n   ### three spaces\n",
+      "headings": [{ "level": 3, "text": "three spaces", "line": 5 }],
+      "blocks": [],
+      "candidates": [1]
+    },
+    {
+      "name": "thematic break and headings end blocks",
+      "text": "para one\n***\npara two ^b2\n## H\nafter heading\n",
+      "headings": [{ "level": 2, "text": "H", "line": 4 }],
+      "blocks": [{ "id": "b2", "line": 3 }],
+      "candidates": [1, 5]
+    },
+    {
+      "name": "crlf line endings",
+      "text": "# One\r\n\r\ntext ^crlf1\r\n## Two\r\n",
+      "headings": [
+        { "level": 1, "text": "One", "line": 1 },
+        { "level": 2, "text": "Two", "line": 4 }
+      ],
+      "blocks": [{ "id": "crlf1", "line": 3 }],
+      "candidates": []
+    },
+    {
+      "name": "unicode heading and inner whitespace collapsed",
+      "text": "## Über   die   Brücke\n\nTäglich ^tag-1\n",
+      "headings": [{ "level": 2, "text": "Über die Brücke", "line": 1 }],
+      "blocks": [{ "id": "tag-1", "line": 3 }],
+      "candidates": []
+    }
+  ]
+}
