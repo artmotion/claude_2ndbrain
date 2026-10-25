@@ -44,6 +44,19 @@ import {
   type AccessResource,
 } from "../permissions/access-management.js";
 import { buildAccessContext, resolveAccessForUser } from "../permissions/resolver.js";
+import {
+  SectionError,
+  outline,
+  parseSectionRef,
+  planAddBlockId,
+  planCreateSection,
+  planDeleteSection,
+  planUpdateSection,
+  readSection,
+  renameHeadingLinks,
+  type CreateSectionInput,
+  type UpdateSectionInput,
+} from "../markdown/section-ops.js";
 import { softDeleteSet } from "../trash/retention.js";
 import { deleteRegisteredFile } from "../http/routes/registry.js";
 import { registerCtx, registerFile } from "../registry/batch-ops.js";
@@ -601,11 +614,26 @@ async function locateNote(auth: McpAuth, docId: string) {
   return note;
 }
 
-export async function readNote(ctx: McpContext, docId: string) {
+export async function readNote(ctx: McpContext, docId: string, section?: string) {
   const note = await locateNote(ctx.auth, docId);
   const perm = await effectivePermission(ctx.auth.userId, docId);
   if (perm === "none") throw new McpToolError("You do not have access to this note");
   const content = await ctx.docWriter.readContent(note.vault_id, docId);
+  if (section !== undefined) {
+    // One section (or block) only; the revision is still the WHOLE note's, so
+    // it preconditions any write exactly like a full read would.
+    const text = sectionOrToolError(() => readSection(content, parseSectionRef(section)));
+    return {
+      docId,
+      vaultId: note.vault_id,
+      title: note.title ?? relPathStem(note.rel_path),
+      relPath: note.rel_path,
+      permission: perm,
+      section,
+      content: text,
+      revision: revisionOf(content),
+    };
+  }
   return {
     docId,
     vaultId: note.vault_id,
@@ -1121,6 +1149,203 @@ export async function editNote(
   );
   await pool.query("UPDATE notes SET updated_at = now() WHERE id = $1", [docId]);
   return { docId, applied: edits.length, bytes: content.length, revision };
+}
+
+// ── sections: headings and ^block-ids ───────────────────────────────────────
+//
+// Section-level reads and writes for an AI: the outline, one section, and
+// create / update / delete of a section, plus a stable `^id` for a block so it
+// can be linked as `[[Note#^id]]`. Every write plans against the text UNDER the
+// doc writer's lock (see `markdown/section-ops.ts`), so the heading it found is
+// the heading it changes, and it lands live on every open app like any edit.
+
+function sectionOrToolError<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof SectionError) throw new McpToolError(err.message, err.code);
+    throw err;
+  }
+}
+
+/** The wiki-link a note is named by in links: its stem. */
+function linkTargetOf(note: { rel_path: string }): string {
+  return relPathStem(note.rel_path);
+}
+
+export async function listSections(ctx: McpContext, docId: string) {
+  const note = await locateNote(ctx.auth, docId);
+  const perm = await effectivePermission(ctx.auth.userId, docId);
+  if (perm === "none") throw new McpToolError("You do not have access to this note");
+  const content = await ctx.docWriter.readContent(note.vault_id, docId);
+  const o = outline(content);
+  const target = linkTargetOf(note);
+  return {
+    docId,
+    relPath: note.rel_path,
+    revision: revisionOf(content),
+    headings: o.headings.map((h) => ({ ...h, link: `[[${target}${h.link}]]` })),
+    blocks: o.blocks.map((b) => ({ ...b, link: `[[${target}${b.link}]]` })),
+  };
+}
+
+async function writeSection<T extends { text: string }>(
+  ctx: McpContext,
+  note: { vault_id: string },
+  docId: string,
+  expectedRevision: string | undefined,
+  plan: (current: string) => T,
+): Promise<{ result: T; revision: string }> {
+  let result: T | undefined;
+  const { revision } = await writeOrToolError(() =>
+    ctx.docWriter.editContent(
+      note.vault_id,
+      docId,
+      (current) => {
+        requireRevision(current, expectedRevision);
+        result = sectionOrToolError(() => plan(current));
+        return replacementOp(current, result.text);
+      },
+      { userId: ctx.auth.userId },
+    ),
+  );
+  await pool.query("UPDATE notes SET updated_at = now() WHERE id = $1", [docId]);
+  return { result: result!, revision };
+}
+
+export async function createSection(
+  ctx: McpContext,
+  docId: string,
+  input: CreateSectionInput,
+  expectedRevision?: string,
+) {
+  const note = await requireEditableNote(ctx.auth, docId);
+  const { result, revision } = await writeSection(ctx, note, docId, expectedRevision, (current) =>
+    planCreateSection(current, input),
+  );
+  return {
+    docId,
+    heading: result.heading,
+    level: result.level,
+    section: result.path,
+    link: `[[${linkTargetOf(note)}#${result.path}]]`,
+    revision,
+  };
+}
+
+/** How many other notes one heading rename may rewrite links in. */
+const RENAME_LINK_NOTES_MAX = 200;
+
+/**
+ * Carry a renamed heading into the links that pointed at it, in every other
+ * note of the vault that links to this one and that this user may edit. Notes
+ * they cannot edit are reported, never touched.
+ */
+async function renameLinksElsewhere(
+  ctx: McpContext,
+  note: { vault_id: string; rel_path: string; title: string | null },
+  docId: string,
+  from: string,
+  to: string,
+) {
+  const stem = relPathStem(note.rel_path);
+  const names = new Set(
+    [stem, note.rel_path.replace(/\.md$/i, ""), note.title ?? ""].map((n) => n.toLowerCase()).filter(Boolean),
+  );
+  const { rows } = await pool.query<{ from_doc: string }>(
+    `SELECT DISTINCT l.from_doc
+       FROM note_links l JOIN notes n ON n.id = l.from_doc AND n.deleted_at IS NULL
+      WHERE l.vault_id = $1 AND l.from_doc <> $2 AND lower(l.to_title) = ANY($3::text[])
+      LIMIT ${RENAME_LINK_NOTES_MAX + 1}`,
+    [note.vault_id, docId, [...names]],
+  );
+  const isTarget = (t: string) => {
+    const lower = t.toLowerCase().replace(/\.md$/, "");
+    return names.has(lower) || names.has(lower.slice(lower.lastIndexOf("/") + 1));
+  };
+  const updated: Array<{ docId: string; links: number }> = [];
+  const skipped: Array<{ docId: string; reason: string }> = [];
+  for (const row of rows.slice(0, RENAME_LINK_NOTES_MAX)) {
+    const perm = await effectivePermission(ctx.auth.userId, row.from_doc);
+    if (perm !== "edit") {
+      skipped.push({ docId: row.from_doc, reason: perm === "none" ? "no access" : "read-only" });
+      continue;
+    }
+    let count = 0;
+    await ctx.docWriter.editContent(
+      note.vault_id,
+      row.from_doc,
+      (current) => {
+        const r = renameHeadingLinks(current, isTarget, from, to);
+        count = r.count;
+        return replacementOp(current, r.text);
+      },
+      { userId: ctx.auth.userId },
+    );
+    if (count > 0) updated.push({ docId: row.from_doc, links: count });
+  }
+  return { updated, skipped, truncated: rows.length > RENAME_LINK_NOTES_MAX };
+}
+
+export async function updateSection(
+  ctx: McpContext,
+  docId: string,
+  section: string,
+  input: UpdateSectionInput & { updateLinks?: boolean },
+  expectedRevision?: string,
+) {
+  const note = await requireEditableNote(ctx.auth, docId);
+  const target = linkTargetOf(note);
+  const { result, revision } = await writeSection(ctx, note, docId, expectedRevision, (current) => {
+    const planned = planUpdateSection(current, section, input);
+    if (!planned.renamed || input.updateLinks === false) return planned;
+    // `[[#Old]]` and `[[ThisNote#Old]]` inside the note follow in the same write.
+    const self = renameHeadingLinks(
+      planned.text,
+      (t) => t === "" || t.toLowerCase() === target.toLowerCase(),
+      planned.renamed.from,
+      planned.renamed.to,
+    );
+    return { ...planned, text: self.text };
+  });
+  const links =
+    result.renamed && input.updateLinks !== false
+      ? await renameLinksElsewhere(ctx, note, docId, result.renamed.from, result.renamed.to)
+      : null;
+  return { docId, section, renamed: result.renamed, revision, ...(links ? { links } : {}) };
+}
+
+export async function deleteSection(
+  ctx: McpContext,
+  docId: string,
+  section: string,
+  expectedRevision?: string,
+) {
+  const note = await requireEditableNote(ctx.auth, docId);
+  const { revision } = await writeSection(ctx, note, docId, expectedRevision, (current) =>
+    planDeleteSection(current, section),
+  );
+  return { docId, deleted: section, revision };
+}
+
+export async function addBlockId(
+  ctx: McpContext,
+  docId: string,
+  text: string,
+  id?: string,
+  expectedRevision?: string,
+) {
+  const note = await requireEditableNote(ctx.auth, docId);
+  const { result, revision } = await writeSection(ctx, note, docId, expectedRevision, (current) =>
+    planAddBlockId(current, text, id),
+  );
+  return {
+    docId,
+    id: result.id,
+    created: result.created,
+    link: `[[${linkTargetOf(note)}#^${result.id}]]`,
+    revision,
+  };
 }
 
 /** Soft-delete a note (matches the app: sets deleted_at, keeps CRDT history). */

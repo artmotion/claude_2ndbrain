@@ -402,3 +402,61 @@ export function sectionRange(text: string, heading: HeadingAnchor): SectionRange
   const bodyFrom = nl === -1 || nl >= heading.sectionEnd ? heading.sectionEnd : nl + 1;
   return { heading, from: heading.from, bodyFrom, to: heading.sectionEnd };
 }
+
+// ---- Heading renames --------------------------------------------------------
+
+/**
+ * `text` with every `[[target#…Old…]]` whose target `isTarget` accepts renamed
+ * to `newHeading` — the last segment of a heading path, or an enclosing one
+ * (`[[Note#Old#Child]]`). Aliases, block links and links inside fenced code are
+ * left alone. `isTarget("")` decides `[[#Old]]` (a link inside the note itself).
+ */
+export function renameHeadingLinks(
+  text: string,
+  isTarget: (target: string) => boolean,
+  oldHeading: string,
+  newHeading: string,
+): { text: string; count: number } {
+  const oldKey = normalizeHeading(oldHeading);
+  const replacement = headingLinkText(newHeading);
+  if (!oldKey || !replacement || normalizeHeading(replacement) === oldKey) return { text, count: 0 };
+  let count = 0;
+  let fence: { ch: string; run: number } | null = null;
+  const out: string[] = [];
+  for (const line of text.split("\n")) {
+    const f = fenceOf(line.replace(/\r$/, ""));
+    if (fence) {
+      if (f && f.ch === fence.ch && f.run >= fence.run && f.rest.trim() === "") fence = null;
+      out.push(line);
+      continue;
+    }
+    if (f && !(f.ch === "`" && f.rest.includes("`"))) {
+      fence = { ch: f.ch, run: f.run };
+      out.push(line);
+      continue;
+    }
+    out.push(
+      line.replace(/\[\[([^\]\n]+)\]\]/g, (whole, inner: string) => {
+        const pipe = inner.indexOf("|");
+        const head = pipe >= 0 ? inner.slice(0, pipe) : inner;
+        const tail = pipe >= 0 ? inner.slice(pipe) : "";
+        const hash = head.indexOf("#");
+        if (hash < 0) return whole;
+        const rawTarget = head.slice(0, hash);
+        if (!isTarget(rawTarget.trim())) return whole;
+        const rest = head.slice(hash + 1);
+        if (rest.trimStart().startsWith("^")) return whole;
+        let changed = false;
+        const segments = rest.split("#").map((seg) => {
+          if (normalizeHeading(seg) !== oldKey) return seg;
+          changed = true;
+          return replacement;
+        });
+        if (!changed) return whole;
+        count++;
+        return `[[${rawTarget}#${segments.join("#")}${tail}]]`;
+      }),
+    );
+  }
+  return { text: count ? out.join("\n") : text, count };
+}

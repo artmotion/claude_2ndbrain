@@ -8,6 +8,11 @@ import {
   deleteFileTool,
   moveFileTool,
   editNote,
+  addBlockId,
+  createSection,
+  deleteSection,
+  listSections,
+  updateSection,
   getAccessDefaultTool,
   listAttachments,
   listFolders,
@@ -349,14 +354,32 @@ export const TOOLS: McpTool[] = [
     name: "read_note",
     annotations: { title: "Read note", ...READ },
     description:
-      "Read a note's full text content (Markdown, HTML dashboard, or linked .url/.webloc note) by its docId. Also returns its `revision` — pass it as expectedRevision to update_note / append_note / edit_note so a write is refused if the note changed in between.",
+      "Read a note's full text content (Markdown, HTML dashboard, or linked .url/.webloc note) by its docId — or, with `section`, just one heading's section or one ^block. Also returns its `revision` (always of the whole note) — pass it as expectedRevision to update_note / append_note / edit_note / the section tools so a write is refused if the note changed in between.",
     inputSchema: {
       type: "object",
-      properties: { docId: S("Note docId from list_notes or search_notes") },
+      properties: {
+        docId: S("Note docId from list_notes or search_notes"),
+        section: S(
+          "Optional: read only this section. A heading (\"Goals\"), a heading path for twins (\"Plan#Goals\"), or a block id (\"^ship1\") — the part after # in a [[Note#…]] link. See list_sections.",
+        ),
+      },
       required: ["docId"],
       additionalProperties: false,
     },
-    handler: (ctx, a) => readNote(ctx, reqStr(a, "docId")),
+    handler: (ctx, a) => readNote(ctx, reqStr(a, "docId"), optStr(a, "section")),
+  },
+  {
+    name: "list_sections",
+    annotations: { title: "List note sections", ...READ },
+    description:
+      "List a note's outline: every heading (level, text, the `path` that names it, line, and the [[Note#Heading]] link to it) and every block that carries a ^block-id (with its [[Note#^id]] link). Use the paths with read_note's `section` and the section tools, and the links to point other notes at a section or block.",
+    inputSchema: {
+      type: "object",
+      properties: { docId: S("Note docId") },
+      required: ["docId"],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => listSections(ctx, reqStr(a, "docId")),
   },
   {
     name: "search_notes",
@@ -545,6 +568,111 @@ export const TOOLS: McpTool[] = [
     },
     handler: (ctx, a) =>
       editNote(ctx, reqStr(a, "docId"), parseEdits(a.edits), optStr(a, "expectedRevision")),
+  },
+  {
+    name: "create_section",
+    annotations: { title: "Create section", ...CREATE },
+    description:
+      "Add a new heading section to a note. By default it goes at the end of the note (H2 when the note has an H1 title, else the note's top heading level). Pass `parent` to put it at the end of that section one level deeper, or `after` to put it right after that section at the same level. Refused with section_exists if a heading with the same text already exists at that place — use update_section instead. Returns the section's path and its [[Note#Heading]] link.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        docId: S("Note docId"),
+        heading: S("The heading text (without #)"),
+        content: S("Optional Markdown body under the heading"),
+        level: { type: "integer", minimum: 1, maximum: 6, description: "Optional heading level 1–6" },
+        parent: S("Optional: a section to nest the new one in (its end, one level deeper)"),
+        after: S("Optional: a section to place the new one right after (same level)"),
+        expectedRevision: S("Optional `revision` from read_note / list_sections; refuses the write if the note changed."),
+      },
+      required: ["docId", "heading"],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) =>
+      createSection(
+        ctx,
+        reqStr(a, "docId"),
+        {
+          heading: reqStr(a, "heading"),
+          content: optStr(a, "content"),
+          level: optNum(a, "level"),
+          parent: optStr(a, "parent"),
+          after: optStr(a, "after"),
+        },
+        optStr(a, "expectedRevision"),
+      ),
+  },
+  {
+    name: "update_section",
+    annotations: { title: "Update section", ...REPLACE },
+    description:
+      "Change one section of a note: replace its body (`content`; by default only the text before its first subsection, set includeSubsections to replace those too), rename its heading (`heading`) and/or change its `level`. A block (\"^id\") takes `content` only and keeps its id. Renaming a heading also updates [[Note#Old heading]] links to it — inside the note and in every other note you can edit (set updateLinks: false to skip); notes you cannot edit are reported, not changed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        docId: S("Note docId"),
+        section: S("The section: a heading, a heading path (\"Plan#Goals\") or a block id (\"^ship1\")"),
+        content: S("Optional new Markdown body"),
+        heading: S("Optional new heading text"),
+        level: { type: "integer", minimum: 1, maximum: 6, description: "Optional new heading level" },
+        includeSubsections: { type: "boolean", description: "With content: replace the subsections too (default false)" },
+        updateLinks: { type: "boolean", description: "On a rename: rewrite links to the old heading (default true)" },
+        expectedRevision: S("Optional `revision` from read_note / list_sections; refuses the write if the note changed."),
+      },
+      required: ["docId", "section"],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) =>
+      updateSection(
+        ctx,
+        reqStr(a, "docId"),
+        reqStr(a, "section"),
+        {
+          content: optStr(a, "content"),
+          heading: optStr(a, "heading"),
+          level: optNum(a, "level"),
+          includeSubsections: optBool(a, "includeSubsections"),
+          updateLinks: optBool(a, "updateLinks"),
+        },
+        optStr(a, "expectedRevision"),
+      ),
+  },
+  {
+    name: "delete_section",
+    annotations: { title: "Delete section", ...DELETE },
+    description:
+      "Remove one section of a note — the heading and everything under it, subsections included — or one ^block. The note's version history keeps the old text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        docId: S("Note docId"),
+        section: S("The section: a heading, a heading path or a block id (\"^id\")"),
+        expectedRevision: S("Optional `revision` from read_note / list_sections; refuses the write if the note changed."),
+      },
+      required: ["docId", "section"],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) =>
+      deleteSection(ctx, reqStr(a, "docId"), reqStr(a, "section"), optStr(a, "expectedRevision")),
+  },
+  {
+    name: "add_block_id",
+    annotations: { title: "Make block linkable", ...MOVE },
+    description:
+      "Give a paragraph or list item a ^block-id so it can be linked as [[Note#^id]]. Name the block by quoting part of its text exactly (it must appear in exactly one block). A block that already has an id keeps it, so a retry is safe. Returns the id and the link.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        docId: S("Note docId"),
+        text: S("Exact text from the block (enough to appear in only one block)"),
+        id: S("Optional id to use (letters, digits, '-'); default: a random 6-character id"),
+        expectedRevision: S("Optional `revision` from read_note; refuses the write if the note changed."),
+      },
+      required: ["docId", "text"],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) =>
+      addBlockId(ctx, reqStr(a, "docId"), reqStr(a, "text"), optStr(a, "id"), optStr(a, "expectedRevision")),
   },
   {
     name: "delete_note",
