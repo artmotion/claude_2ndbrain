@@ -40,6 +40,7 @@ import { checkboxes, taskKeymap } from "./tasks";
 import { editorTheme, markdownHighlight } from "./theme";
 import { anchorFlash } from "./anchorReveal";
 import { blockIdMarkers } from "./ofm/blockId";
+import { type HeadingLinkHost, headingLinks } from "./headingLinks";
 import { type LinkHost, wikilinkCompletions, wikilinks } from "./wikilinks";
 
 export interface CreateEditorOptions {
@@ -56,6 +57,11 @@ export interface CreateEditorOptions {
    * styling (see `LinkHost`). Omitted → only `[[#…]]` in this note completes.
    */
   links?: LinkHost;
+  /**
+   * Link counts on linked headings/blocks and the "update links?" prompt after
+   * renaming one (./headingLinks.ts). Omitted → neither.
+   */
+  headingLinks?: HeadingLinkHost;
   /** Phase-0 buffer callback; omitted for CRDT-managed notes (yCollab syncs). */
   onChange?: (doc: string) => void;
   /** Later phases (Yjs binding) append here. */
@@ -227,6 +233,7 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     ...ofmDecorations,
     // ` ^block-id` markers fold away off the active line (markdown only).
     ...(plain ? [] : [blockIdMarkers]),
+    ...(opts.headingLinks && !plain ? [headingLinks(opts.headingLinks)] : []),
     // Fold placeholder + hover chevrons. The fold RANGES all come from
     // lang-markdown (see ./folding.ts); this only draws the affordance.
     ...folding,

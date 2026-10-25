@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { groupBacklinks } from "../lib/links/backlinkAnchors";
 import { noteLabel } from "../lib/notePath";
 import { useStore } from "../store";
 
@@ -39,8 +40,11 @@ export function BacklinksPanel() {
   // Only markdown notes participate in wikilinks; HTML pages have no backlinks.
   if (!notePath || /\.html?$/i.test(notePath) || backlinks.length === 0) return null;
 
-  const count = backlinks.length;
   const currentLabel = noteLabel(notePath);
+  // One row per linking note; the headings/blocks of THIS note it points at
+  // (`[[Note#Goals]]`, `[[Note#^id]]`) ride along as "→ Goals".
+  const groups = groupBacklinks(backlinks, currentLabel);
+  const count = groups.length;
   return (
     <div className="backlinks-float" ref={rootRef}>
       {open && (
@@ -50,23 +54,22 @@ export function BacklinksPanel() {
             <span className="backlinks-popover-count">{count.toLocaleString()}</span>
           </div>
           <ul className="backlinks-list">
-            {backlinks.map((b) => {
-              const folder = b.path.includes("/") ? b.path.slice(0, b.path.lastIndexOf("/")) : null;
-              // `linkText` is the raw `[[…]]` target — almost always this
-              // note's own name, so it only earns a line when it's an alias.
-              const alias =
-                b.linkText && b.linkText.trim().toLowerCase() !== currentLabel.toLowerCase()
-                  ? b.linkText.trim()
-                  : null;
+            {groups.map((g) => {
+              const folder = g.path.includes("/") ? g.path.slice(0, g.path.lastIndexOf("/")) : null;
+              const meta = [
+                folder,
+                g.targets.length ? `→ ${g.targets.join(", ")}` : null,
+                g.aliases.length ? `as “${g.aliases.join("”, “")}”` : null,
+              ].filter(Boolean);
               return (
                 <li
-                  key={b.id}
+                  key={g.id}
                   className="backlink"
                   role="menuitem"
-                  title={b.path}
+                  title={g.path}
                   onClick={() => {
                     setOpen(false);
-                    void useStore.getState().openNoteByPath(b.path);
+                    void useStore.getState().openNoteByPath(g.path);
                   }}
                 >
                   <svg className="backlink-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -77,14 +80,11 @@ export function BacklinksPanel() {
                     {/* The file name, like the tab and the sidebar — `b.title`
                         is the INDEXED title, which for a note with an H1 or a
                         frontmatter `title:` names the same note differently. */}
-                    <span className="backlink-title">{noteLabel(b.path)}</span>
-                    {(folder || alias) && (
-                      <span className="backlink-meta">
-                        {folder}
-                        {folder && alias && " · "}
-                        {alias && <>as “{alias}”</>}
-                      </span>
-                    )}
+                    <span className="backlink-title">
+                      {noteLabel(g.path)}
+                      {g.count > 1 && <span className="backlink-times"> ×{g.count}</span>}
+                    </span>
+                    {meta.length > 0 && <span className="backlink-meta">{meta.join(" · ")}</span>}
                   </span>
                   <span className="backlink-go" aria-hidden="true">
                     ›

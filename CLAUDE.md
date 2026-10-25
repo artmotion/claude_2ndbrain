@@ -7,7 +7,7 @@ edit together in real time. Every OSS competitor does one or the other; the whol
 
 - All product docs live under `docs/` (only this `CLAUDE.md` stays at the repo root).
 - Docs index: `docs/2ndBrain.md` · live build status: `docs/STATUS.md` · branding policy: `docs/BRANDING.md`
-- Specs (source of truth for design): `docs/specs/00`–`04` + `docs/specs/REQUIREMENTS.md` (the 12-requirement yardstick)
+- Specs (source of truth for design): `docs/specs/00`–`06` + `docs/specs/REQUIREMENTS.md` (the 12-requirement yardstick)
 
 ## System landscape (what lives where)
 
@@ -169,6 +169,10 @@ Errors: single `AppError(String)` (`error.rs`).
   path lets local external renames retain identity; equal content or ambiguous hard links never merge.
   Unsupported identity metadata fails closed. Local tabs follow these indexed moves; synced moves
   remain registry-owned.
+- `parse.rs parse_anchors` → `index.rs note_anchors` (headings + `^block-id`s per note,
+  `list_note_anchors`). **ONE contract** with `src/lib/links/anchors.ts` and the server's
+  `src/markdown/sections.ts` (a verbatim copy below its header, asserted by a test), all three pinned
+  by `src/lib/links/__fixtures__/anchors.json`. Links to headings/blocks: `docs/specs/06-block-links.md`.
 - `watcher.rs` — `notify` recursive watcher, 150ms-debounced (1000ms ceiling), emits ONE batched
   `files-changed {changes: [{path, kind}]}` per drain. `kind` is `modified` | `removed` | `tree`, derived
   from an existence check rather than forwarded from `notify` (whose event kinds and rename pairing we
@@ -444,7 +448,16 @@ touching THAT node unfolds it. A blurred editor has no active line at all. Obsid
 lives in `lib/editor/ofm/` — note the node names `OfmComment*`, because `@lezer/markdown` already owns
 `Comment`/`CommentBlock` and `configure()` silently skips a duplicate name. The editor's `#tag` rule
 (`ofm/hashtag.ts`) and Rust's `TAG_RE` (`parse.rs`) are ONE contract: change one, change both, or a
-tag becomes visible but unsearchable.
+tag becomes visible but unsearchable. A `#` inside a closed `[[…]]` is never a tag (it is a heading
+link, `[[#Heading]]`) on both sides.
+
+`[[` completes in two stages (`lib/editor/wikilinks.ts`, pure ranking in `lib/links/linkCompletion.ts`):
+notes first (the caret stays before `]]`), then after `#` that note's headings and blocks; an id-less
+block gets ` ^id` appended — in another note only through `lib/links/noteEdit.ts editNoteText` (open
+note → one editor transaction; closed → compare-and-swap `write_note` that the watcher ingests as CRDT
+operations; read-only/locked refused). A click on `[[Note#…]]` sets `store.pendingReveal` and
+`anchorReveal.ts` jumps once the content is in. Renaming a linked heading offers to update the links
+(`lib/editor/headingLinks.ts`).
 
 Above the body sit two more block decorations, both React inside a CM6 widget (`lib/editor/noteHeader.ts`;
 `updateDOM` returns **true** so the host node — and the focused `<input>` — survives a remote keystroke,
@@ -789,7 +802,11 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   and counts only, never paths or text.
 - `tokens/sync-token.ts` — HS256 per-doc JWT (`jose`), TTL `SYNC_TOKEN_TTL_SECONDS` (default 600).
 - `mcp/` — JSON-RPC 2.0 over Streamable HTTP at `POST /api/mcp` (no SSE; GET/DELETE → 405). Tools:
-  `list_vaults/list_folders/create_folder/move_folder/delete_folder/list_notes/read_note/search_notes/create_note/update_note/append_note/edit_note/move_note/delete_note/list_attachments/read_attachment_text/move_file/delete_file`.
+  `list_vaults/list_folders/create_folder/move_folder/delete_folder/list_notes/read_note/search_notes/create_note/update_note/append_note/edit_note/move_note/delete_note/list_attachments/read_attachment_text/move_file/delete_file`
+  plus the section tools `list_sections/create_section/update_section/delete_section/add_block_id`
+  and `read_note`'s `section` (pure plans in `src/markdown/section-ops.ts`, run under the doc writer's
+  lock; an `update_section` rename rewrites `[[Note#Old]]` in every linking note the caller may edit,
+  found through `note_links`, max 200).
   `delete_file` shares `deleteRegisteredFile` (`http/routes/registry.ts`) with `DELETE /api/files/:id`;
   `move_file` re-registers the id at a new path through `registerFile`, like `POST /api/files`.
   `read_note` returns a `revision` (sha256 of the body); `update_note`/`append_note`/`edit_note` take an

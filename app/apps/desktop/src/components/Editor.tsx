@@ -16,7 +16,8 @@ import { wikilinkClickAction } from "../lib/editor/wikilinkResolve";
 import { revealAnchor } from "../lib/editor/anchorReveal";
 import { parseWikilinkInner, type Subpath } from "../lib/links/anchors";
 import { anchorsChanged, configureAnchorCache, onAnchorCacheChange } from "../lib/links/anchorCache";
-import { createLinkHost } from "../lib/links/linkHost";
+import { createHeadingLinkHost, createLinkHost } from "../lib/links/linkHost";
+import { backlinksChanged } from "../lib/editor/headingLinks";
 import { toast } from "../lib/toast";
 import { setActiveNote } from "../lib/editor/activeView";
 import { bindActiveNote } from "../lib/editor/activeNoteBinding";
@@ -464,6 +465,8 @@ export function Editor() {
     let unregisterLiveView: (() => void) | null = null;
     let cancelTitlesDispatch: (() => void) | null = null;
     let unsubscribeAnchors: (() => void) | null = null;
+    let unsubscribeBacklinks: (() => void) | null = null;
+    let cancelBacklinksDispatch: (() => void) | null = null;
     let unlistenAnchorFiles: (() => void) | null = null;
     // The editor pane is empty until CodeMirror is constructed below, and
     // getting there means opening the bridge, hydrating the CRDT from SQLite
@@ -610,6 +613,7 @@ export function Editor() {
         },
         onNavigate: (t) => void navigate(t),
         links: createLinkHost(notePath, epoch),
+        headingLinks: createHeadingLinkHost(notePath, epoch),
         resolveAsset: makeResolveAsset(
           useStore.getState().vault?.path ?? null,
           notePath
@@ -672,6 +676,16 @@ export function Editor() {
       // A target's indexed headings/blocks arriving (or changing) can flip a
       // `[[Note#Heading]]` between found and missing: repaint like a title move.
       configureAnchorCache(useStore.getState().vault?.path ?? null, (p) => ipc.listNoteAnchors(p));
+      // New backlinks → repaint the "N links" counts on headings and blocks.
+      unsubscribeBacklinks = useStore.subscribe((st, prev) => {
+        if (st.backlinks === prev.backlinks) return;
+        cancelBacklinksDispatch?.();
+        cancelBacklinksDispatch = dispatchAfterCommit(
+          titlesView,
+          { effects: backlinksChanged.of(null) },
+          { isLive: () => !cancelled && viewRef.current === titlesView },
+        );
+      });
       unsubscribeAnchors = onAnchorCacheChange(() => {
         cancelTitlesDispatch?.();
         cancelTitlesDispatch = dispatchAfterCommit(
@@ -693,9 +707,11 @@ export function Editor() {
       // is in (a cold synced note mounts empty and fills during the handshake).
       const consumePendingReveal = () => {
         const pending = useStore.getState().pendingReveal;
-        if (!pending || pending.path.toLowerCase() !== notePath.toLowerCase()) return;
+        if (!pending) return;
+        // Consumed either way: a jump meant for a note the person then left
+        // must not fire the next time that note opens.
         useStore.getState().setPendingReveal(null);
-        revealHere(pending.subpath);
+        if (pending.path.toLowerCase() === notePath.toLowerCase()) revealHere(pending.subpath);
       };
       const reveal = () => {
         if (cancelled) return;
@@ -763,6 +779,8 @@ export function Editor() {
       cancelled = true;
       unsubscribeTitles?.();
       unsubscribeAnchors?.();
+      unsubscribeBacklinks?.();
+      cancelBacklinksDispatch?.();
       unlistenAnchorFiles?.();
       cancelTitlesDispatch?.();
       if (onInitialContent) bridgeRef.current?.text.unobserve(onInitialContent);

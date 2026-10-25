@@ -41,7 +41,7 @@ describe("editNoteText", () => {
   });
 
   it("re-plans against the new bytes when the file moved on", async () => {
-    const files = { "A.md": "v1" };
+    const files: Record<string, string> = { "A.md": "v1" };
     let first = true;
     const d = deps(files, {
       writeNote: async (p, text, sha) => {

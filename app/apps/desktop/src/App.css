@@ -3559,6 +3559,11 @@ button.secondary.about-update-btn:disabled {
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
 }
+/* "×3": one note linking here several times (block / heading links). */
+.backlink-times {
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
 /* The row opens the note; the chevron says so on hover. */
 .backlink-go {
   flex: none;

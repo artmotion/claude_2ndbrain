@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "2ndBrain",
-  "version": "0.1.83",
+  "version": "0.1.84",
   "identifier": "com.artmotion.secondbrain",
   "build": {
     "beforeDevCommand": "pnpm dev",

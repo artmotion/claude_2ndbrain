@@ -39,6 +39,11 @@ tags: [secondbrain, status, roadmap]
   first), same-path creates become two notes, closed-app renames keep their id, a once-per-session
   summary banner, and a server-side 30-day per-vault Trash (Restore, pushes into deleted notes
   accepted, purge keeps a tombstone row).
+- **Block & heading links:** 🟢 2026-10-25. `[[Note#Heading]]`, `[[Note#^id]]` and `[[#…]]` in the
+  Obsidian syntax: two-stage `[[` dropdown (notes, then the note's headings/blocks; picking an
+  id-less block appends ` ^id`), click jumps to the section, missing anchors are marked, backlinks
+  per section, renaming a linked heading offers to update the links, and MCP tools let the AI list,
+  read, create, update and delete sections and add block ids. See [[06-block-links]].
 - **Next action:** Phase 4 polish / launch decisions (WYSIWYG, vector search, OAuth, iOS).
 
 > **Requirement coverage:** Phases 0–3 deliver **10 of the 12** core requirements,

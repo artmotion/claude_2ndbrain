@@ -69,11 +69,11 @@ describe("wikilink click on nested highlighter span", () => {
     expect(clickInnerTextSpan(view, "create a link")).toBe(true);
     expect(navigated).toBe("create a link");
   });
-  it("alias + heading resolve to bare target", () => {
+  it("alias is stripped, the heading rides along so the click lands on it", () => {
     let navigated: string | null = null;
     const view = mount("[[Real Note#Section|shown text]]", (t) => (navigated = t));
     expect(clickInnerTextSpan(view, "shown text")).toBe(true);
-    expect(navigated).toBe("Real Note");
+    expect(navigated).toBe("Real Note#Section");
   });
   it("a link to a note that does not exist does not navigate", () => {
     let navigated: string | null = null;

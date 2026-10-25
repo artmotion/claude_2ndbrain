@@ -21,6 +21,13 @@
     (every app still installs it). Ask before each release: silent, or notes?
 -->
 
+## 0.1.84
+
+- Link to a heading or a single paragraph: type `[[`, pick the note, then `#` to choose one of its headings or blocks. Clicking the link jumps straight there.
+- Links stay intact: renaming a linked heading offers to update every link to it, and links to a heading that no longer exists are marked.
+- See which sections other notes point to: linked headings show how many links they have, and Backlinks lists the sections each note links to.
+- Your AI assistant can now read, add and change individual sections of a note and link to single blocks.
+
 ## 0.1.83
 
 - Introducing dashboards: a visual layer for your second brain. Turn your notes into a home for projects, plans, and the things you want to keep in view.

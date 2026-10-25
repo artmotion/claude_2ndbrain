@@ -12,8 +12,11 @@ import { effectiveLockForPath, lockScopesByPath } from "../locks";
 import { noteLabel } from "../notePath";
 import { toast } from "../toast";
 import { useStore } from "../../store";
+import { renameHeadingLinks } from "./anchors";
 import { cachedAnchors } from "./anchorCache";
+import { backlinksToHeading } from "./backlinkAnchors";
 import { type NoteEditDeps, editNoteText, withBlockId } from "./noteEdit";
+import type { HeadingLinkHost } from "../editor/headingLinks";
 
 /** Not padlocked for this user and not known read-only. */
 export async function canEditNotePath(path: string): Promise<boolean> {
@@ -62,6 +65,78 @@ export function createLinkHost(selfPath: string, epoch?: ipc.VaultEpoch): LinkHo
     indexedAnchors: cachedAnchors,
     onBlockIdFailed(path) {
       toast(`Couldn't add a block id in “${noteLabel(path)}” — that link points nowhere yet`, "error");
+    },
+  };
+}
+
+/** The names a `[[…]]` may use for the note at `path`: its path without `.md`
+ *  and its indexed title (its stem is checked by the caller). */
+function namesFor(path: string): string[] {
+  const title = useStore.getState().titles.find((t) => t.path.toLowerCase() === path.toLowerCase())?.title;
+  return [path.replace(/\.md$/i, ""), ...(title ? [title] : [])];
+}
+
+/**
+ * Carry a renamed heading of `selfPath` into every OTHER note whose backlinks
+ * point at it, one CRDT-safe edit per note; read-only notes are skipped. Says
+ * what happened in one toast.
+ */
+export async function renameHeadingInLinkingNotes(
+  selfPath: string,
+  from: string,
+  to: string,
+  epoch?: ipc.VaultEpoch,
+): Promise<{ links: number; notes: number; skipped: number }> {
+  const deps = noteEditDeps(epoch);
+  const stem = noteLabel(selfPath).toLowerCase();
+  const names = new Set(namesFor(selfPath).map((n) => n.toLowerCase()));
+  const isTarget = (t: string) => {
+    const lower = t.toLowerCase().replace(/\.md$/, "");
+    return lower === stem || lower.slice(lower.lastIndexOf("/") + 1) === stem || names.has(lower);
+  };
+  const paths = [
+    ...new Set(
+      backlinksToHeading(useStore.getState().backlinks, from)
+        .map((b) => b.path)
+        .filter((p) => p.toLowerCase() !== selfPath.toLowerCase()),
+    ),
+  ];
+  let links = 0;
+  let notes = 0;
+  let skipped = 0;
+  for (const path of paths) {
+    let count = 0;
+    const result = await editNoteText(
+      path,
+      (text) => {
+        const r = renameHeadingLinks(text, isTarget, from, to);
+        count = r.count;
+        return r.count ? r.text : null;
+      },
+      deps,
+    );
+    if (result === "written") {
+      links += count;
+      notes++;
+    } else if (result === "readonly" || result === "failed") {
+      skipped++;
+    }
+  }
+  if (notes > 0 || skipped > 0) {
+    const done = `Updated ${links === 1 ? "1 link" : `${links} links`} in ${notes === 1 ? "1 note" : `${notes} notes`}`;
+    const rest = skipped ? ` · ${skipped === 1 ? "1 note" : `${skipped} notes`} could not be changed (read-only)` : "";
+    toast(`${done}${rest}`, skipped && notes === 0 ? "error" : "success");
+  }
+  return { links, notes, skipped };
+}
+
+export function createHeadingLinkHost(selfPath: string, epoch?: ipc.VaultEpoch): HeadingLinkHost {
+  return {
+    selfPath,
+    getBacklinks: () => useStore.getState().backlinks,
+    selfNames: () => namesFor(selfPath),
+    renameLinks: async (from, to) => {
+      await renameHeadingInLinkingNotes(selfPath, from, to, epoch);
     },
   };
 }

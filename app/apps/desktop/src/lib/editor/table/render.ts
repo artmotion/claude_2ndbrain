@@ -53,10 +53,12 @@ function maskWikilinks(text: string): string {
   return text.replace(WIKILINK_RE, (m) => "a".repeat(m.length));
 }
 
-/** What a `[[target|alias]]` / `[[target#heading]]` shows, and where it goes. */
+/** What a `[[target|alias]]` / `[[target#heading]]` shows, and where it goes.
+ *  `target` keeps a `#heading` / `#^block` so a click lands on that place
+ *  (`Editor.tsx navigate` → `anchorReveal.ts`). */
 export function wikilinkParts(inner: string): { label: string; target: string } {
   const pipe = inner.indexOf("|");
-  const target = (pipe >= 0 ? inner.slice(0, pipe) : inner).split("#")[0]!.trim();
+  const target = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim();
   if (pipe >= 0) return { label: inner.slice(pipe + 1).trim(), target };
   const hash = inner.indexOf("#");
   const label = hash >= 0 ? `${inner.slice(0, hash).trim()} > ${inner.slice(hash + 1).trim()}` : inner.trim();
