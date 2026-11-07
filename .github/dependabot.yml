@@ -1,0 +1,43 @@
+# Weekly update proposals for everything this repo ships or builds with.
+#
+# `cooldown` is the supply-chain brake, the same 7 days pnpm enforces through
+# `minimumReleaseAge` (app/pnpm-workspace.yaml): a release is proposed only
+# once it has been public for a week, which is when most hijacked or
+# malicious versions have already been found and pulled. Security updates
+# (Dependabot alerts) are not delayed by it.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /app
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: /app/apps/desktop/src-tauri
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # The server image (node:24-trixie-slim).
+  - package-ecosystem: docker
+    directory: /app/apps/server
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+
+  # postgres / cloudflared / redis in the two Compose files.
+  - package-ecosystem: docker-compose
+    directories: [/deploy/compose, /app/apps/server]
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+
+  # Actions are pinned to commit SHAs; this keeps the pins current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }

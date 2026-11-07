@@ -863,6 +863,12 @@ billing variables (`POLAR_*`, `BILLING_MODEL`, `TEAM_*`, `ABUSE_MAX_*`, `FREE_MA
   musl (Alpine's C library). Whenever an Alpine-based image turns up (`*-alpine` tags, `FROM alpine`),
   ASK the owner whether to switch to a Debian-based image (e.g. `postgres:16`,
   `node:24-trixie-slim`) instead of keeping or adding it silently.
+- **Supply chain.** pnpm refuses versions younger than 7 days (`minimumReleaseAge` in
+  `app/pnpm-workspace.yaml`), Dependabot proposes updates with the same 7-day cooldown, and every
+  GitHub Action is pinned to a commit SHA (version in a trailing comment). Audit exceptions live in
+  `pnpm-workspace.yaml auditConfig.ignoreGhsas` and `src-tauri/.cargo/audit.toml`, each with its
+  reason; the server stays on better-auth 1.6.x (1.7 replaced the `mcp` plugin) and
+  `tests/auth-advisory-guard.test.ts` fails if a plugin those exceptions depend on is enabled.
 - **`doc_id` is identity.** Never resolve or store a note by path across layers.
 - **`rel_path` and `folder_id` must agree.** A note/file/folder's location is stored twice; the server
   derives or validates the parent from the path on every create and move

@@ -461,6 +461,32 @@ curl https://<your-server>/health
 A server that answers without `features` predates the list and counts as behind. A server the app
 cannot reach is never reported as behind.
 
+### Security updates
+
+Every image in the bundle is Debian-based (glibc), never Alpine: the server
+(`node:24-trixie-slim`), Postgres (`postgres:17-trixie`), Redis for HA
+(`redis:8-trixie`) and the optional tunnel (`cloudflared`, distroless Debian 13).
+The server image runs `apt-get upgrade` when it is built, so a rebuild picks up
+Debian's fixes even before the upstream `node` image is refreshed.
+
+- **Rebuild and pull regularly**, at least monthly and after any security notice:
+  `git pull && docker compose pull && docker compose up -d --build`. `pull`
+  refreshes Postgres to the newest 17.x on the same Debian release; `--build`
+  rebuilds the server with current Debian packages.
+- **The Debian release of Postgres is pinned** (`-trixie`) on purpose. A new
+  Debian release ships a new glibc, whose text sort order can differ; indexes
+  built under the old one then need `REINDEX`. Change it only deliberately.
+- **`cloudflared` is pinned to a release**, not `latest`: it holds the tunnel
+  credentials and faces the internet, so a new version is taken on purpose.
+  Dependabot (`.github/dependabot.yml`) proposes image, npm, Cargo and Actions
+  updates weekly, each at least 7 days after it was published.
+- **Audits:** `pnpm audit` (from `app/`) and `cargo audit` (from
+  `app/apps/desktop/src-tauri/`). Accepted findings are listed with their reason
+  in `app/pnpm-workspace.yaml` (`auditConfig`) and
+  `app/apps/desktop/src-tauri/.cargo/audit.toml`; each says when it must go.
+- **Secrets never enter an image:** the root `.dockerignore` keeps every `.env`,
+  `deploy/compose/cloudflared/` and `data/` out of the build context.
+
 ## Scaling & high availability (spec 05)
 
 The default single-instance deploy scales to hundreds of concurrent users:

@@ -305,6 +305,9 @@ fn read_entry(zip: &mut Archive<'_>, name: &str) -> Option<String> {
 fn parts_in_order(zip: &Archive<'_>, prefix: &str, suffix: &str) -> Vec<String> {
     let mut names: Vec<String> = zip
         .file_names()
+        // zip 9 reports a name it cannot decode as an error: such an entry is
+        // not an OOXML part we know how to read, so it is skipped.
+        .filter_map(|n| n.ok())
         .filter(|n| n.starts_with(prefix) && n.ends_with(suffix))
         .map(|n| n.to_string())
         .collect();
@@ -365,11 +368,16 @@ fn xml_text(xml: &str, text_tags: &[&str], break_tags: &[&str]) -> String {
     let mut out = String::new();
     let mut line = String::new();
     let mut depth = 0usize;
+    // A new text element starts a new run (joined with a space); the pieces of
+    // ONE run — text and the `&amp;`-style references quick-xml reports as
+    // separate events since 0.38 — join bare, or "Tom&apos;s" reads "Tom 's".
+    let mut new_run = false;
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
                 if matches_local(e.local_name().as_ref(), text_tags) {
                     depth += 1;
+                    new_run = true;
                 }
             }
             Ok(Event::End(e)) => {
@@ -380,12 +388,13 @@ fn xml_text(xml: &str, text_tags: &[&str], break_tags: &[&str]) -> String {
                     push_line(&mut out, &mut line);
                 }
             }
-            Ok(Event::Text(e)) if depth > 0 => {
-                let text = e.unescape().unwrap_or_default();
+            Ok(ev @ (Event::Text(_) | Event::GeneralRef(_))) if depth > 0 => {
+                let text = event_text(&ev);
                 if !text.is_empty() {
-                    if !line.is_empty() && !line.ends_with(' ') {
+                    if new_run && !line.is_empty() && !line.ends_with(' ') {
                         line.push(' ');
                     }
+                    new_run = false;
                     line.push_str(&text);
                 }
             }
@@ -400,8 +409,24 @@ fn xml_text(xml: &str, text_tags: &[&str], break_tags: &[&str]) -> String {
     out
 }
 
-fn matches_local(local: &[u8], tags: &[&str]) -> bool {
-    tags.iter().any(|t| t.as_bytes() == local)
+fn matches_local(local: &str, tags: &[&str]) -> bool {
+    tags.iter().any(|t| *t == local)
+}
+
+/// The characters a text or reference event stands for: text as written, a
+/// predefined entity (`&amp;`) or character reference (`&#x41;`) resolved, and
+/// an unknown entity (OOXML declares none) dropped.
+fn event_text(ev: &quick_xml::events::Event<'_>) -> String {
+    use quick_xml::events::Event;
+    match ev {
+        Event::Text(e) => e.xml10_content().into_owned(),
+        Event::GeneralRef(r) => {
+            quick_xml::escape::unescape(&format!("&{};", r.xml10_content()))
+                .map(|c| c.into_owned())
+                .unwrap_or_default()
+        }
+        _ => String::new(),
+    }
 }
 
 fn push_line(out: &mut String, line: &mut String) {
@@ -438,26 +463,30 @@ fn xlsx_text(bytes: &[u8]) -> Result<String, TextStatus> {
         // `t="inlineStr"` means the text is in a nested <is><t>.
         let mut shared_cell = false;
         let mut in_value = false;
+        // One `<v>`/`<t>`'s text, gathered across its text and reference
+        // events and handled when the element closes.
+        let mut raw = String::new();
         loop {
             match reader.read_event() {
                 Ok(Event::Start(e)) | Ok(Event::Empty(e)) => match e.local_name().as_ref() {
-                    b"c" => {
+                    "c" => {
                         shared_cell = e
                             .try_get_attribute("t")
                             .ok()
                             .flatten()
-                            .is_some_and(|a| a.value.as_ref() == b"s");
+                            .is_some_and(|a| a.value.as_ref() == "s");
                     }
-                    b"v" | b"t" => in_value = true,
+                    "v" | "t" => {
+                        in_value = true;
+                        raw.clear();
+                    }
                     _ => {}
                 },
-                Ok(Event::End(e)) => match e.local_name().as_ref() {
-                    b"v" | b"t" => in_value = false,
-                    b"row" => push_line(&mut out, &mut row),
-                    _ => {}
-                },
-                Ok(Event::Text(e)) if in_value => {
-                    let raw = e.unescape().unwrap_or_default();
+                Ok(ev @ (Event::Text(_) | Event::GeneralRef(_))) if in_value => {
+                    raw.push_str(&event_text(&ev));
+                }
+                Ok(Event::End(e)) if matches!(e.local_name().as_ref(), "v" | "t") => {
+                    in_value = false;
                     let value = if shared_cell {
                         raw.trim()
                             .parse::<usize>()
@@ -466,7 +495,7 @@ fn xlsx_text(bytes: &[u8]) -> Result<String, TextStatus> {
                             .cloned()
                             .unwrap_or_default()
                     } else {
-                        raw.to_string()
+                        std::mem::take(&mut raw)
                     };
                     if !value.is_empty() {
                         if !row.is_empty() {
@@ -475,6 +504,7 @@ fn xlsx_text(bytes: &[u8]) -> Result<String, TextStatus> {
                         row.push_str(&value);
                     }
                 }
+                Ok(Event::End(e)) if e.local_name().as_ref() == "row" => push_line(&mut out, &mut row),
                 Ok(Event::Eof) => break,
                 Err(_) => break,
                 _ => {}
@@ -497,23 +527,23 @@ fn shared_strings(xml: &str) -> Vec<String> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => match e.local_name().as_ref() {
-                b"si" => {
+                "si" => {
                     in_item = true;
                     current.clear();
                 }
-                b"t" => in_text = true,
+                "t" => in_text = true,
                 _ => {}
             },
             Ok(Event::End(e)) => match e.local_name().as_ref() {
-                b"si" => {
+                "si" => {
                     in_item = false;
                     strings.push(std::mem::take(&mut current));
                 }
-                b"t" => in_text = false,
+                "t" => in_text = false,
                 _ => {}
             },
-            Ok(Event::Text(e)) if in_item && in_text => {
-                current.push_str(&e.unescape().unwrap_or_default());
+            Ok(ev @ (Event::Text(_) | Event::GeneralRef(_))) if in_item && in_text => {
+                current.push_str(&event_text(&ev));
             }
             Ok(Event::Eof) => break,
             Err(_) => break,
@@ -528,7 +558,11 @@ fn shared_strings(xml: &str) -> Vec<String> {
 /// read standalone, at a size we refused to read at all.
 fn zip_names(bytes: &[u8]) -> Result<String, TextStatus> {
     let zip = open_archive(bytes)?;
-    let mut names: Vec<&str> = zip.file_names().take(MAX_ZIP_NAMES).collect();
+    let mut names: Vec<String> = zip
+        .file_names()
+        .take(MAX_ZIP_NAMES)
+        .filter_map(|n| n.ok().map(|n| n.into_owned()))
+        .collect();
     names.sort_unstable();
     Ok(names.join("\n"))
 }
@@ -609,6 +643,26 @@ mod tests {
         let out = extract("xlsx", &bytes);
         assert_eq!(out.status, TextStatus::Ok);
         assert_eq!(out.text, "Widget 42\nTotal inline cell\n");
+    }
+
+    /// quick-xml reports `&amp;`/`&#x41;` as their own events (since 0.38): they
+    /// must resolve into the run they sit in — no stray spaces, nothing lost —
+    /// in a paragraph, a shared string and an inline cell alike.
+    #[test]
+    fn entity_references_resolve_inside_their_run() {
+        let bytes = docx(
+            "<w:p><w:r><w:t>Tom&apos;s &amp; Co</w:t></w:r><w:r><w:t>&#x41;BC</w:t></w:r></w:p>",
+        );
+        assert_eq!(extract("docx", &bytes).text, "Tom's & Co ABC\n");
+
+        let bytes = zip_of(&[
+            ("xl/sharedStrings.xml", r#"<sst><si><t>R&amp;D</t></si></sst>"#),
+            (
+                "xl/worksheets/sheet1.xml",
+                r#"<worksheet><sheetData><row><c t="s"><v>0</v></c><c t="inlineStr"><is><t>a&lt;b</t></is></c></row></sheetData></worksheet>"#,
+            ),
+        ]);
+        assert_eq!(extract("xlsx", &bytes).text, "R&D a<b\n");
     }
 
     /// Sheets and slides are ordered by their number, not lexically, or

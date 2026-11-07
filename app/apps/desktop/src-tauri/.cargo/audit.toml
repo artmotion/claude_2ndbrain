@@ -1,0 +1,17 @@
+# `cargo audit` exceptions, each checked against this app (2026-11-07).
+#
+# zip 4.x arrives only through tauri-plugin-updater 2.10 (our own text
+# extraction uses zip 9, which is patched). All four advisories are about
+# `ZipArchive::extract` writing an archive to disk; the updater would call it
+# only for a downloaded update, and this fork ships with updater artifacts
+# off and no update signing key (src-tauri/tauri.ci.conf.json, docs/RELEASE.md),
+# so no update is ever fetched. The plugin version with zip 9 (2.14) needs
+# Tauri 2.12; drop these lines when Tauri and the updater are upgraded, and
+# before the updater is ever switched on.
+[advisories]
+ignore = [
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+  "RUSTSEC-2026-0429",
+]

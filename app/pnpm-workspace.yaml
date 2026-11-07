@@ -30,6 +30,26 @@ strictDepBuilds: true
 ignoredBuiltDependencies:
   - "@openrouter/sdk"
 
+# Supply-chain brake: never resolve a version published less than 7 days ago
+# (in minutes). Most malicious npm releases are found and pulled within days;
+# waiting a week keeps a hijacked maintainer account from reaching our
+# lockfile through a routine update. A security fix younger than that needs an
+# explicit, reviewed exception here (minimumReleaseAgeExclude).
+minimumReleaseAge: 10080
+
+# Known advisories that do not apply here, each checked against this
+# configuration (2026-11-07). The server stays on better-auth 1.6.x because
+# 1.7 replaced the `mcp` plugin its OAuth connector flow is built on; these are
+# fixed only in 1.7.7 and each needs a plugin or setting this server does not
+# use. `apps/server/tests/auth-advisory-guard.test.ts` fails the moment one is
+# enabled — move to 1.7.7+ then, and drop the matching line.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-965c-763c-88jm # critical: needs the magicLink plugin
+    - GHSA-r4xp-prcw-77qf # high: needs the oauthProxy plugin
+    - GHSA-q84f-53jg-9ppm # high: needs the deviceAuthorization plugin
+    - GHSA-44jh-23m7-hpcf # low: needs database-backed rate limiting
+
 # Security floors for transitive deps (Dependabot). dompurify and katex arrive
 # through mermaid; drop each entry once mermaid's own range requires the fixed
 # version.
@@ -39,3 +59,9 @@ overrides:
   # Mammoth's CLI uses the v1 compatibility API retained in argparse 2.
   # argparse 1 pulls in unpatched sprintf-js (GHSA-hp3w-g68c-fv3c).
   "mammoth>argparse": "2.0.1"
+  # jsdom (desktop tests only) pins undici 7.x: DoS, TLS-validation and
+  # cache-poisoning fixes landed in 7.30.1 (GHSA, 2026-10).
+  "undici@>=7.0.0 <7.30.1": "^7.30.1"
+  # @openrouter/sdk (server Assistant) ranges zod 4.x: memory exhaustion on
+  # oversized constrained collections, fixed in 4.6.6.
+  "zod@>=4.0.0 <4.6.6": "^4.6.6"

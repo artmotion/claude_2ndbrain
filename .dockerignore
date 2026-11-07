@@ -1,0 +1,26 @@
+# Build context for app/apps/server/Dockerfile (context = repo root).
+#
+# The Dockerfile only COPYs the workspace manifests and app/apps/server, but
+# `COPY app/apps/server` takes everything under it — so local secrets and
+# host-built trees must never be in the context to begin with.
+
+# Secrets and private configuration: never part of an image.
+**/.env
+**/.env.*
+!**/.env.example
+deploy/compose/cloudflared/
+data/
+
+# Host-built trees: rebuilt inside the image, and host binaries (macOS,
+# Windows) would be wrong there anyway.
+**/node_modules
+**/dist
+**/target
+**/.turbo
+
+# Not needed to build the server.
+.git
+.github
+docs
+app/apps/desktop/src
+app/apps/desktop/src-tauri

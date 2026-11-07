@@ -1,8 +1,9 @@
 services:
   postgres:
-    # Debian-based (no Alpine). The volume name carries the major version:
+    # Debian-based (no Alpine), Debian release pinned like the production
+    # bundle (deploy/compose). The volume name carries the major version:
     # Postgres 17 cannot start on a 16 data directory.
-    image: postgres:17
+    image: postgres:17-trixie
     container_name: context-pg
     restart: unless-stopped
     environment:
@@ -24,7 +25,9 @@ services:
   # Optional: only for multi-instance / HA vault sync (spec 05). Single-instance
   # dev and self-host need nothing here. Start with: `docker compose --profile ha up`.
   redis:
-    image: redis:7
+    # Debian 13 based (no Alpine). Redis 8, because Redis 7 is only published
+    # on Debian 12. Dev/HA only; nothing here persists.
+    image: redis:8-trixie
     container_name: context-redis
     restart: unless-stopped
     profiles: ["ha"]

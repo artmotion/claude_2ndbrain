@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.1.84"
+version = "0.1.85"
 description = "2ndBrain — local-first markdown app"
 authors = ["artmotion"]
 license = "Apache-2.0"
@@ -61,8 +61,8 @@ tauri-plugin-deep-link = "2.4.9"
 # `default-features = false` on purpose: zip's defaults pull bzip2/zstd/lzma
 # (C toolchains on four release targets) and AES, none of which an OOXML part
 # uses — Office writes deflate. Both MIT.
-zip = { version = "2", default-features = false, features = ["deflate"] }
-quick-xml = "0.37"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+quick-xml = "0.42"
 # Attachment transport (`attachments.rs`): bytes move through Rust, not the
 # webview — no bucket CORS, no `connect-src` to widen for a self-hosted MinIO,
 # and a 500 MB video never enters the JS heap.

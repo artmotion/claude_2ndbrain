@@ -41,8 +41,12 @@ services:
   postgres:
     # Debian-based (glibc), never Alpine. A data directory belongs to one libc
     # family and one major version: switching either means dump → fresh
-    # db_volume → restore.
-    image: postgres:17
+    # db_volume → restore. The Debian release is pinned too (`-trixie`): a new
+    # Debian release brings a new glibc whose collation order can differ, and
+    # text indexes built under the old one then need a REINDEX. Minor
+    # PostgreSQL releases (17.x security fixes) still arrive with `docker
+    # compose pull`.
+    image: postgres:17-trixie
     restart: unless-stopped
     environment:
       POSTGRES_USER: secondbrain
@@ -121,7 +125,11 @@ services:
   # Running cloudflared elsewhere instead (e.g. unraid's plugin)? Leave this
   # off and point it at http://<host>:${PUBLIC_PORT}.
   cloudflared:
-    image: docker.io/cloudflare/cloudflared:latest
+    # Pinned, not `latest`: this container holds the tunnel credentials and
+    # faces the internet, so a new release is taken on purpose (Dependabot
+    # proposes it, at least 7 days after publication) rather than whenever the
+    # host happens to pull. Distroless Debian 13 base, non-root, no Alpine.
+    image: docker.io/cloudflare/cloudflared:2026.10.7
     profiles: ["tunnel"]
     command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
     volumes:
