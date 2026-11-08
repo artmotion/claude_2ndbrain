@@ -459,6 +459,13 @@ operations; read-only/locked refused). A click on `[[Note#…]]` sets `store.pen
 `anchorReveal.ts` jumps once the content is in. Renaming a linked heading offers to update the links
 (`lib/editor/headingLinks.ts`).
 
+Find & replace in the open note is CodeMirror's search panel (`lib/editor/findReplace.ts`: Mod-f,
+Mod-h / Mod-Alt-f; ⌘F inside the editor never reaches the app's vault search, ⌘⇧F does). A
+right-click in the text opens `components/EditorContextMenu.tsx` over the pure model
+`lib/editor/contextMenu.ts` (clipboard, bold/italic/underline `<u>`, H1–H6 flyout, link, table,
+find); every item runs the same command as its shortcut (`formatting.ts`), tables and the title /
+Properties widgets keep their own right-click.
+
 Above the body sit two more block decorations, both React inside a CM6 widget (`lib/editor/noteHeader.ts`;
 `updateDOM` returns **true** so the host node — and the focused `<input>` — survives a remote keystroke,
 and the title widget's `eq()` compares only `{path, readOnly, hasFrontmatter, mode}`, never doc content):

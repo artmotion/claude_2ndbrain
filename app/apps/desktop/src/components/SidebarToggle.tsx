@@ -44,7 +44,7 @@ export function SidebarToggle({
       <button
         type="button"
         className="titlebar-tool titlebar-search"
-        title={`Search notes (${shortcutLabel("⌘F")})`}
+        title={`Search notes (${shortcutLabel("⌘⇧F")})`}
         aria-label="Search notes"
         aria-pressed={searchOpen}
         onClick={onSearch}

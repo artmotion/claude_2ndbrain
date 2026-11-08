@@ -112,6 +112,93 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
   },
   ".cm-selectionMatch": { backgroundColor: "var(--accent-soft)" },
 
+  // The in-note find & replace panel (./findReplace.ts), docked at the top of
+  // the editor and kept in view while the note scrolls under it.
+  ".cm-panels": {
+    backgroundColor: "var(--bg-surface)",
+    color: "var(--text-primary)",
+  },
+  ".cm-panels.cm-panels-top": {
+    borderBottom: "1px solid var(--border)",
+    boxShadow: "var(--shadow-sm)",
+  },
+  // Two rows on a grid: Find + its buttons and options, then Replace + its
+  // buttons under the Find field. (CodeMirror separates them with a <br>,
+  // which a flex row ignores; on the grid the Replace field claims column 1
+  // and so starts the second row.)
+  ".cm-panel.cm-search": {
+    display: "grid",
+    gridTemplateColumns: "minmax(9em, 22em) repeat(6, max-content)",
+    alignItems: "center",
+    gap: "var(--sp-1) var(--sp-2)",
+    padding: "var(--sp-2) var(--sp-3)",
+    paddingRight: "calc(var(--sp-3) + 28px)",
+    fontFamily: "var(--font-body)",
+    fontSize: "var(--fs-sm)",
+    position: "relative",
+    overflowX: "auto",
+  },
+  ".cm-panel.cm-search br": { display: "none" },
+  ".cm-panel.cm-search input[name=replace]": { gridColumn: "1" },
+  ".cm-panel.cm-search input.cm-textfield": {
+    width: "100%",
+    boxSizing: "border-box",
+    margin: "0",
+    padding: "4px var(--sp-2)",
+    font: "inherit",
+    color: "var(--text-primary)",
+    backgroundColor: "var(--bg-app)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius-sm)",
+    outline: "none",
+  },
+  ".cm-panel.cm-search input.cm-textfield:focus": {
+    borderColor: "var(--accent)",
+    boxShadow: "0 0 0 2px var(--accent-soft)",
+  },
+  ".cm-panel.cm-search .cm-button": {
+    margin: "0",
+    padding: "3px var(--sp-2)",
+    font: "inherit",
+    color: "var(--text-primary)",
+    backgroundImage: "none",
+    backgroundColor: "var(--bg-surface)",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--radius-sm)",
+    cursor: "pointer",
+  },
+  ".cm-panel.cm-search .cm-button:hover": { backgroundColor: "var(--bg-hover)" },
+  ".cm-panel.cm-search label": {
+    fontSize: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+    margin: "0",
+    color: "var(--text-secondary)",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+  },
+  ".cm-panel.cm-search label input": { margin: "0", accentColor: "var(--accent)" },
+  ".cm-panel.cm-search button[name=close]": {
+    position: "absolute",
+    top: "var(--sp-2)",
+    right: "var(--sp-2)",
+    width: "24px",
+    height: "24px",
+    padding: "0",
+    border: "none",
+    borderRadius: "var(--radius-sm)",
+    background: "none",
+    color: "var(--text-tertiary)",
+    fontSize: "18px",
+    lineHeight: "1",
+    cursor: "pointer",
+  },
+  ".cm-panel.cm-search button[name=close]:hover": {
+    backgroundColor: "var(--bg-hover)",
+    color: "var(--text-primary)",
+  },
+
   // Matching-bracket emphasis, kept subtle.
   ".cm-matchingBracket, .cm-nonmatchingBracket": {
     backgroundColor: "var(--accent-soft)",

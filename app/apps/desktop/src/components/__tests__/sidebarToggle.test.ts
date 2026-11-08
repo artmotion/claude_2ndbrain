@@ -31,7 +31,7 @@ describe("SidebarToggle", () => {
     act(() => root.render(createElement(SidebarToggle, {
       hidden: false, onToggle: vi.fn(), searchOpen: false, onSearch: vi.fn(),
     })));
-    expect(host.querySelector<HTMLButtonElement>(".titlebar-search")!.title).toBe("Search notes (Ctrl+F)");
+    expect(host.querySelector<HTMLButtonElement>(".titlebar-search")!.title).toBe("Search notes (Ctrl+Shift+F)");
   });
 
   it("reflects both visibility states without firing during render", () => {
@@ -54,7 +54,7 @@ describe("SidebarToggle", () => {
     expect(button.getAttribute("aria-expanded")).toBe("false");
     expect(onToggle).not.toHaveBeenCalled();
     const search = host.querySelector<HTMLButtonElement>(".titlebar-search")!;
-    expect(search.title).toBe("Search notes (⌘F)");
+    expect(search.title).toBe("Search notes (⌘⇧F)");
     expect(search.getAttribute("aria-pressed")).toBe("true");
     expect(onSearch).not.toHaveBeenCalled();
   });

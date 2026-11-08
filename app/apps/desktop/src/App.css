@@ -2107,6 +2107,48 @@ body:has(.sidebar-resizer.dragging) {
   color: var(--danger);
 }
 
+/* ---- Note editor right-click menu (components/EditorContextMenu.tsx) ----
+   Label left, shortcut right-aligned in the quiet tier, a chevron on the row
+   that opens the heading flyout. */
+.editor-context-menu {
+  min-width: 220px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.editor-context-menu li.editor-menu-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-left: var(--sp-2);
+}
+.editor-context-menu .menu-tick {
+  width: 14px;
+}
+.editor-context-menu .editor-menu-label {
+  flex: 1;
+}
+.editor-context-menu .editor-menu-shortcut {
+  margin-left: var(--sp-4);
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
+.editor-context-menu .editor-menu-chevron {
+  color: var(--text-tertiary);
+  font-size: var(--fs-md);
+  line-height: 1;
+}
+.editor-context-menu li.sub-open,
+.editor-context-menu li:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+.editor-context-menu li.disabled {
+  cursor: default;
+}
+.editor-context-submenu {
+  min-width: 200px;
+}
+
 /* ---- Sort menu (toolbar popover + the ⋯ menu's sort group) ----
    A non-clickable group label. Not a heading element: this is a menu, and the
    label names the radio group below it rather than starting a document section. */

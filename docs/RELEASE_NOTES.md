@@ -21,6 +21,12 @@
     (every app still installs it). Ask before each release: silent, or notes?
 -->
 
+## 0.1.86
+
+- Find and replace inside the open note: press Ctrl+F (⌘F on a Mac), or Ctrl+H (⌘⌥F) to replace. Search all notes is now Ctrl+Shift+F.
+- Right-click in a note for bold, italic, underline, headings 1–6, a link or a table, plus cut, copy, paste and find.
+- Underline has its own shortcut: Ctrl+U (⌘U).
+
 ## 0.1.84
 
 - Link to a heading or a single paragraph: type `[[`, pick the note, then `#` to choose one of its headings or blocks. Clicking the link jumps straight there.

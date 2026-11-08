@@ -9,6 +9,8 @@
 //   Mod-e        `inline code`
 //   Mod-Shift-x  ~~strikethrough~~
 //   Mod-Shift-h  ==highlight==
+//   Mod-u        <u>underline</u> — markdown has no underline of its own; the
+//                HTML tag is what Obsidian and most renderers show
 //   Mod-k        [text](url)  — selection becomes the link text; caret lands
 //                in the empty () so you can type/paste the URL immediately.
 //                A selected URL goes the other way round: `[](url)`, caret in
@@ -46,49 +48,55 @@ function wrapTarget(state: EditorState, range: SelectionRange): { from: number; 
 
 /** Toggle a symmetric inline marker (`**`, `*`, `` ` ``, `~~`, `==`). */
 export function toggleInline(marker: string): Command {
-  const len = marker.length;
+  return toggleWrap(marker, marker);
+}
+
+/**
+ * Toggle a pair of inline markers around the selection — symmetric (`**`) or
+ * not (`<u>` … `</u>`). Same unwrap rules either way: the markers just outside
+ * the selection, or bracketing the selection itself, are removed instead.
+ */
+export function toggleWrap(open: string, close: string): Command {
+  const ol = open.length;
+  const cl = close.length;
   return (view: EditorView) => {
     if (view.state.readOnly) return false;
     const tr = view.state.changeByRange((range) => {
       const { from, to } = wrapTarget(view.state, range);
-      const before = view.state.sliceDoc(Math.max(0, from - len), from);
-      const after = view.state.sliceDoc(to, to + len);
+      const before = view.state.sliceDoc(Math.max(0, from - ol), from);
+      const after = view.state.sliceDoc(to, to + cl);
       const inside = view.state.sliceDoc(from, to);
 
       // Markers sit just outside the selection → strip them (unwrap).
-      if (before === marker && after === marker) {
+      if (before === open && after === close) {
         return {
           changes: [
-            { from: from - len, to: from },
-            { from: to, to: to + len },
+            { from: from - ol, to: from },
+            { from: to, to: to + cl },
           ],
-          range: EditorSelection.range(from - len, to - len),
+          range: EditorSelection.range(from - ol, to - ol),
         };
       }
       // Selection already brackets itself with the markers → strip them.
-      if (
-        inside.length >= len * 2 &&
-        inside.startsWith(marker) &&
-        inside.endsWith(marker)
-      ) {
+      if (inside.length >= ol + cl && inside.startsWith(open) && inside.endsWith(close)) {
         return {
           changes: [
-            { from, to: from + len },
-            { from: to - len, to },
+            { from, to: from + ol },
+            { from: to - cl, to },
           ],
-          range: EditorSelection.range(from, to - len * 2),
+          range: EditorSelection.range(from, to - ol - cl),
         };
       }
       // Otherwise wrap. Empty target → caret lands between the markers.
       return {
         changes: [
-          { from, insert: marker },
-          { from: to, insert: marker },
+          { from, insert: open },
+          { from: to, insert: close },
         ],
         range:
           from === to
-            ? EditorSelection.cursor(from + len)
-            : EditorSelection.range(from + len, to + len),
+            ? EditorSelection.cursor(from + ol)
+            : EditorSelection.range(from + ol, to + ol),
       };
     });
     view.dispatch(tr, { scrollIntoView: true, userEvent: "input.format" });
@@ -105,7 +113,7 @@ const URL_RE = /^(?:[a-z][a-z0-9+.-]*:\/\/|mailto:|www\.)\S+$/i;
  * select it, hit ⌘K), `[](url)` with the caret in the empty label, because the
  * one thing still missing is the words.
  */
-const insertLink: Command = (view) => {
+export const insertLink: Command = (view) => {
   if (view.state.readOnly) return false;
   const tr = view.state.changeByRange((range) => {
     const target = wrapTarget(view.state, range);
@@ -138,7 +146,49 @@ const hardBreak: Command = (view) => {
   return true;
 };
 
+/** A two-column table with the first header cell selected, on its own
+ *  paragraph: a blank line is added before and after where text touches it. */
+export const TABLE_TEMPLATE = "| Column | Column |\n| --- | --- |\n|  |  |";
+
+export const insertTable: Command = (view) => {
+  if (view.state.readOnly) return false;
+  const { doc } = view.state;
+  const line = doc.lineAt(view.state.selection.main.to);
+  const blank = (n: number) => n < 1 || n > doc.lines || doc.line(n).text.trim() === "";
+  const nextHasText = line.number < doc.lines && !blank(line.number + 1);
+  let from: number;
+  let to: number;
+  let lead: string;
+  if (blank(line.number)) {
+    // An empty line becomes the table; a blank line above it is kept or made.
+    from = line.from;
+    to = line.to;
+    lead = blank(line.number - 1) ? "" : "\n";
+  } else {
+    // After a line of text: below it, never splitting the sentence.
+    from = to = line.to;
+    lead = "\n\n";
+  }
+  // Keep a blank line between the table and text that follows it.
+  const trail = nextHasText ? "\n" : "";
+  const cell = from + lead.length + 2;
+  view.dispatch({
+    changes: { from, to, insert: `${lead}${TABLE_TEMPLATE}${trail}` },
+    selection: EditorSelection.range(cell, cell + "Column".length),
+    scrollIntoView: true,
+    userEvent: "input.format",
+  });
+  return true;
+};
+
 const HEADING_RE = /^#{1,6}[ \t]+/;
+
+/** The heading level (1–6) of the line holding the main selection, else 0. */
+export function headingLevelAt(state: EditorState): number {
+  const line = state.doc.lineAt(state.selection.main.head);
+  const m = /^(#{1,6})[ \t]+/.exec(line.text);
+  return m ? m[1]!.length : 0;
+}
 
 /**
  * Set every selected line to heading level `level`; a line that is already at
@@ -181,6 +231,7 @@ export function formattingKeymap() {
     { key: "Mod-e", run: toggleInline("`"), preventDefault: true },
     { key: "Mod-Shift-x", run: toggleInline("~~"), preventDefault: true },
     { key: "Mod-Shift-h", run: toggleInline("=="), preventDefault: true },
+    { key: "Mod-u", run: toggleWrap("<u>", "</u>"), preventDefault: true },
     { key: "Mod-k", run: insertLink, preventDefault: true },
     // Shift-Enter is a distinct key name from Enter, so lang-markdown's
     // `Prec.high` Enter binding (list continuation) never sees it — but the

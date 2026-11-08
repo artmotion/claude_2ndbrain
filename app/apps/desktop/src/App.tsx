@@ -1511,6 +1511,9 @@ export default function App() {
         e.preventDefault();
         setGraphOpen((v) => !v);
       }
+      // Vault-wide search. Inside the editor ⌘F is the editor's own find-in-note
+      // (lib/editor/findReplace.ts handles it first, so it never gets here) and
+      // ⌘K inserts a link; ⌘⇧F and ⌘P reach this from anywhere.
       if ((e.metaKey || e.ctrlKey) && ["f", "k", "p"].includes(e.key.toLowerCase())) {
         e.preventDefault();
         setSearchOpen((v) => !v);

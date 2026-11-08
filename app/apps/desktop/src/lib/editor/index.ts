@@ -39,6 +39,7 @@ import { slashCompletions } from "./slash";
 import { checkboxes, taskKeymap } from "./tasks";
 import { editorTheme, markdownHighlight } from "./theme";
 import { anchorFlash } from "./anchorReveal";
+import { findReplace } from "./findReplace";
 import { blockIdMarkers } from "./ofm/blockId";
 import { type HeadingLinkHost, headingLinks } from "./headingLinks";
 import { type LinkHost, wikilinkCompletions, wikilinks } from "./wikilinks";
@@ -153,9 +154,9 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     // CRDT notes use the Yjs UndoManager keymap (added via extraExtensions);
     // the local CM6 history keymap would fight it, so drop it in collab mode.
     ...(collab ? [] : historyKeymap),
-    // Mod-f and Mod-g belong to the app (search all notes, graph view;
-    // `App.tsx`), which skips a key the editor already handled. In-note find
-    // stays on F3 / Shift-F3.
+    // Mod-g belongs to the app (graph view; `App.tsx`). Mod-f is bound by
+    // ./findReplace.ts (find in this note), which also adds Mod-h for replace;
+    // F3 / Shift-F3 step through matches.
     ...searchKeymap.filter((b) => b.key !== "Mod-f" && b.key !== "Mod-g"),
   ];
 
@@ -183,6 +184,8 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     //   Mod-l          task toggle        Tab/Shift-Tab list indent
     // (Enter is lang-markdown's, at `Prec.high` — see lists.ts.)
     formattingKeymap(),
+    // In-note find & replace panel (Mod-f, Mod-h / Mod-Alt-f).
+    findReplace,
     listKeymap(),
     taskKeymap(),
     keymap.of([...foldKeymap, ...keys]),

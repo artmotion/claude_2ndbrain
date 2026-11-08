@@ -19,6 +19,10 @@ import { anchorsChanged, configureAnchorCache, onAnchorCacheChange } from "../li
 import { createHeadingLinkHost, createLinkHost } from "../lib/links/linkHost";
 import { backlinksChanged } from "../lib/editor/headingLinks";
 import { toast } from "../lib/toast";
+import { editorMenuItems, placeCaretForMenu, type EditorMenuItem } from "../lib/editor/contextMenu";
+import { isMarkdownNote } from "../lib/notePath";
+import { shortcutLabel } from "../lib/shortcutLabel";
+import { EditorContextMenu } from "./EditorContextMenu";
 import { setActiveNote } from "../lib/editor/activeView";
 import { bindActiveNote } from "../lib/editor/activeNoteBinding";
 import { saveAttachment } from "../lib/attachments";
@@ -397,6 +401,8 @@ export function Editor() {
   // it) doesn't make the roster flicker shut.
   const rosterCloseTimer = useRef<number | null>(null);
   const [pingFrom, setPingFrom] = useState<string | null>(null);
+  // The right-click menu: where it opened and what it offers right now.
+  const [editorMenu, setEditorMenu] = useState<{ x: number; y: number; items: EditorMenuItem[] } | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
   // Pings already played, keyed by sender clientId + timestamp.
   const seenPingsRef = useRef<Set<string>>(new Set());
@@ -651,6 +657,26 @@ export function Editor() {
       // consumes the flag as it mounts inside the constructor below.
       const titleWantsFocus = useStore.getState().pendingTitleFocus === notePath;
       view = new EditorView({ state, parent: hostRef.current });
+      // Right-click in the text opens the editing menu (lib/editor/contextMenu.ts).
+      // Not over a table (it has its own menu and stops the event), the inline
+      // title, the Properties panel or any form control inside a widget.
+      const menuView = view;
+      menuView.contentDOM.addEventListener("contextmenu", (e) => {
+        if (e.defaultPrevented) return;
+        const target = e.target as Element | null;
+        if (target?.closest("input, textarea, select, button, .cm-note-title, .cm-note-properties, .cm-md-table-wrap")) return;
+        e.preventDefault();
+        placeCaretForMenu(menuView, e.clientX, e.clientY);
+        setEditorMenu({
+          x: e.clientX,
+          y: e.clientY,
+          items: editorMenuItems(menuView, {
+            plain: !isMarkdownNote(notePath),
+            onPasteUnavailable: () =>
+              toast(`Paste isn't available from the menu here — press ${shortcutLabel("⌘V")}`, "neutral"),
+          }),
+        });
+      });
       // Restore the folds SYNCHRONOUSLY, in the tick the view is created. A
       // `useEffect` or a rAF would be one painted frame too late, and the note
       // would visibly collapse in front of the reader every time it opened.
@@ -805,6 +831,7 @@ export function Editor() {
       setReadOnly(false);
       setRosterOpen(false);
       setPingFrom(null);
+      setEditorMenu(null);
       // Tear down the network session, then flush + close the bridge. The
       // bridge's close only starts on a later microtask (it is queued), so the
       // provider is still destroyed first; handing its promise to the session
@@ -1048,6 +1075,15 @@ export function Editor() {
           without unmounting it. */}
       <div className="editor-host-wrap">
         <div className="editor-host" ref={hostRef} />
+        {editorMenu && viewRef.current && (
+          <EditorContextMenu
+            view={viewRef.current}
+            x={editorMenu.x}
+            y={editorMenu.y}
+            items={editorMenu.items}
+            onClose={() => setEditorMenu(null)}
+          />
+        )}
         {previewContent != null && (
           <div className="version-preview">
             <div className="version-preview-host" ref={previewHostRef} />

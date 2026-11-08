@@ -199,9 +199,10 @@ When you're ready, open [[The graph view]] to see how everything connects.
 | New note | **⌘N** |
 | Close the current tab | **⌘W** |
 | Switch between open tabs | **Ctrl-Tab** / **Ctrl-Shift-Tab** |
-| Search notes | **⌘F** |
+| Search all notes | **⌘⇧F** |
+| Find / replace in this note | **⌘F** / **⌘⌥F** (Windows: **Ctrl+H**) |
 | Toggle the [[The graph view]] | **⌘G** |
-| Bold / italic | **⌘B** / **⌘I** |
+| Bold / italic / underline | **⌘B** / **⌘I** / **⌘U** |
 | Highlight | **⌘⇧H** |
 | Heading level 1–6 | **⌘⌥1** … **⌘⌥6** |
 | Tick / create a task | **⌘L** |
@@ -210,7 +211,7 @@ When you're ready, open [[The graph view]] to see how everything connects.
 | Add a property (tags, dates…) | **⌘;** |
 | Insert a \`[[wikilink]]\` | type \`[[\` |
 
-Typing \`[[\` anywhere starts a link, \`#\` suggests tags you already use, and \`/\` at the start of a line opens the block menu. To rename a note, click its title at the top and type — the file follows.
+Right-click in a note for the same formatting, headings H1–H6, a link or a table, and find & replace. Typing \`[[\` anywhere starts a link, \`#\` suggests tags you already use, and \`/\` at the start of a line opens the block menu. To rename a note, click its title at the top and type — the file follows.
 
 Hover the left edge of a heading, a list item or a callout for a › to fold it away; 2ndBrain remembers what you folded the next time you open the note.
 
