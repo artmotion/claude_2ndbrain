@@ -279,8 +279,12 @@ export function createApp(deps: AppDeps): Hono {
     const res = await oAuthProtectedResourceMetadata(auth)(c.req.raw);
     if (!res.ok) return res;
     const body = (await res.json()) as Record<string, unknown>;
-    const resource = typeof body.resource === "string" ? body.resource : new URL(c.req.url).origin;
-    return new Response(JSON.stringify({ ...body, resource: `${resource.replace(/\/+$/, "")}/api/mcp` }), {
+    // The plugin's `resource` already IS <origin>/api/mcp; only an origin-only
+    // value gets the suffix (appending blindly answered …/api/mcp/api/mcp).
+    const raw = typeof body.resource === "string" ? body.resource : new URL(c.req.url).origin;
+    const base = raw.replace(/\/+$/, "");
+    const resource = base.endsWith("/api/mcp") ? base : `${base}/api/mcp`;
+    return new Response(JSON.stringify({ ...body, resource }), {
       status: res.status,
       headers: res.headers,
     });

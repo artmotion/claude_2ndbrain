@@ -25,7 +25,7 @@ describe("MCP OAuth discovery", () => {
     expect(suffixed.headers.get("content-type")).toContain("application/json");
     const body = (await suffixed.json()) as { resource: string; authorization_servers: string[] };
     // RFC 9728 §3.3: `resource` names the URL the suffix was taken from.
-    expect(body.resource).toBe(`${bareBody.resource.replace(/\/+$/, "")}/api/mcp`);
+    expect(body.resource).toBe(`${new URL(bareBody.resource).origin}/api/mcp`);
     expect(body.authorization_servers).toEqual(bareBody.authorization_servers);
   });
 
