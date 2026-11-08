@@ -73,7 +73,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.6.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "jsdom": "^29.1.1",
     "typescript": "catalog:",
     "vite": "^7.3.7",
