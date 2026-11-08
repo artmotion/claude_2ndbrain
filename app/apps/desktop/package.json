@@ -58,7 +58,7 @@
     "mermaid": "^11.17.2",
     "motion": "^12.42.2",
     "react": "^19.1.0",
-    "react-arborist": "^3.13.2",
+    "react-arborist": "^4.0.1",
     "react-dom": "^19.1.0",
     "read-excel-file": "^9.3.10",
     "y-codemirror.next": "^0.3.5",
