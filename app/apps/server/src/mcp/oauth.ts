@@ -1,11 +1,14 @@
 import type pg from "pg";
+import type { JSONWebKeySet } from "jose";
+import { verifyJwsAccessToken } from "better-auth/oauth2";
 import { pool as defaultPool } from "../db/pool.js";
+import { config } from "../config.js";
 import { orgRole } from "../permissions/lookup.js";
 import { auth } from "../auth/auth.js";
 import type { McpAuth } from "./tokens.js";
 
 /**
- * The OAuth half of MCP auth (migration 007 + the Better Auth `mcp` plugin).
+ * The OAuth half of MCP auth (migration 058 + `@better-auth/mcp`).
  *
  * A minted `mcp_` token already encodes its (user, vault) scope in its DB
  * row. An OAuth access token, by contrast, only tells us WHO the caller is —
@@ -62,34 +65,102 @@ async function soleVault(
   return rows.length === 1 ? rows[0].organizationId : null;
 }
 
+/** The protected resource every MCP access token must be issued for. */
+export const MCP_RESOURCE = `${config.betterAuthUrl.replace(/\/+$/, "")}/api/mcp`;
+
+/** Stable key for verifyJwsAccessToken's JWKS cache (TTL + kid-miss refetch). */
+const jwksCacheKey = {};
+let issuer: Promise<string> | null = null;
+
+/** The issuer this server stamps into its tokens, read once from its own
+ *  authorization-server metadata (so it can never drift from what clients see). */
+function tokenIssuer(): Promise<string> {
+  issuer ??= (auth.api.getOAuthServerConfig() as Promise<{ issuer: string }>)
+    .then((m) => m.issuer)
+    .catch((err) => {
+      issuer = null;
+      throw err;
+    });
+  return issuer;
+}
+
+/** The bearer token of a request, or null. */
+function bearerToken(headers: Headers): string | null {
+  const h = headers.get("authorization");
+  if (!h || !/^Bearer\s+/i.test(h)) return null;
+  return h.replace(/^Bearer\s+/i, "").trim() || null;
+}
+
+/**
+ * Verify an OAuth access token issued by THIS server for the MCP resource:
+ * signature against our own JWKS (read in-process, never over HTTP), issuer,
+ * audience = /api/mcp, expiry, and the `sub` (user) and `azp` (client) claims.
+ * A sender-constrained (DPoP) token is refused here: this endpoint verifies
+ * bearer tokens only, and a DPoP token presented without its proof is exactly
+ * what sender-constraining exists to stop.
+ */
+export async function verifyMcpAccessToken(
+  token: string,
+): Promise<{ userId: string; clientId: string } | null> {
+  // An mcp_ token or anything that is not a compact JWS never is one of ours.
+  if (token.split(".").length !== 3) return null;
+  try {
+    const payload = await verifyJwsAccessToken(token, {
+      jwksFetch: async () => (await auth.api.getJwks()) as unknown as JSONWebKeySet,
+      jwksCacheKey,
+      verifyOptions: {
+        issuer: await tokenIssuer(),
+        audience: MCP_RESOURCE,
+        requiredClaims: ["sub", "azp", "exp"],
+      },
+    });
+    if (payload.cnf) return null;
+    if (typeof payload.sub !== "string" || typeof payload.azp !== "string") return null;
+    return { userId: payload.sub, clientId: payload.azp };
+  } catch {
+    return null;
+  }
+}
+
 /** Why an OAuth bearer did not resolve: signed in, but no vault chosen. */
 export type OAuthMcpFailure = "no_vault_selected" | null;
 
 /**
  * Resolve an incoming request carrying an OAuth `Authorization: Bearer` access
- * token to an `McpAuth`, or null if the token is missing/invalid/expired, no
- * vault can be determined, or the user is no longer a member of it
- * (membership can be revoked out from under a live token — re-checked here,
- * exactly like verifyMcpToken does for mcp_ tokens). `onFailure` learns when
- * the token itself was valid but no vault was bound, so the 401 can say so.
+ * token to an `McpAuth`, or null if the token is missing/invalid/expired, the
+ * account is disabled, no vault can be determined, or the user is no longer a
+ * member of it (membership can be revoked out from under a live token —
+ * re-checked here, exactly like verifyMcpToken does for mcp_ tokens).
+ * `onFailure` learns when the token itself was valid but no vault was bound,
+ * so the 401 can say so.
  */
 export async function resolveOAuthMcpAuth(
   headers: Headers,
   db: Queryable = defaultPool,
   onFailure?: (reason: OAuthMcpFailure) => void,
 ): Promise<McpAuth | null> {
-  const session = await auth.api.getMcpSession({ headers });
-  if (!session?.userId || !session.clientId) return null;
+  const token = bearerToken(headers);
+  if (!token) return null;
+  const verified = await verifyMcpAccessToken(token);
+  if (!verified) return null;
+  const { userId, clientId } = verified;
+
+  // A disabled account loses every route at once (auth.ts refuses its
+  // sessions); a still-unexpired access token must not outlive that.
+  const { rows: users } = await db.query<{ disabled_at: Date | null }>(
+    'SELECT disabled_at FROM "user" WHERE id = $1',
+    [userId],
+  );
+  if (!users[0] || users[0].disabled_at) return null;
 
   const organizationId =
-    (await getVaultBinding(session.clientId, session.userId, db)) ??
-    (await soleVault(session.userId, db));
+    (await getVaultBinding(clientId, userId, db)) ?? (await soleVault(userId, db));
   if (!organizationId) {
     onFailure?.("no_vault_selected");
     return null;
   }
 
-  if (!(await orgRole(organizationId, session.userId, db))) return null;
+  if (!(await orgRole(organizationId, userId, db))) return null;
 
-  return { userId: session.userId, organizationId };
+  return { userId, organizationId };
 }

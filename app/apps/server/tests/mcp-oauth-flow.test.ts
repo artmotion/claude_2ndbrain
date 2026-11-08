@@ -7,6 +7,8 @@ import { resetDb } from "./helpers/db.js";
 import { recordingAppDeps } from "./helpers/app.js";
 import { createOrg, signUp } from "./helpers/auth.js";
 import { seedVault } from "./helpers/seed.js";
+import { setDisabled } from "../src/admin/accounts.js";
+import { decodeJwt, SignJWT, generateKeyPair } from "jose";
 
 /**
  * The MCP OAuth connector flow end to end, the way a Claude custom connector
@@ -78,22 +80,26 @@ async function discovery() {
   return { prm, as };
 }
 
-async function register(as: { registration_endpoint: string }, name = "Claude") {
+async function register(
+  as: { registration_endpoint: string },
+  name = "Claude",
+  redirectUris: string[] = [REDIRECT],
+) {
   const res = await app.fetch(
     new Request(as.registration_endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         client_name: name,
-        redirect_uris: [REDIRECT],
+        redirect_uris: redirectUris,
         grant_types: ["authorization_code", "refresh_token"],
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
     }),
   );
-  expect([200, 201]).toContain(res.status);
   const body = (await res.json()) as { client_id: string };
+  expect([200, 201], JSON.stringify(body)).toContain(res.status);
   expect(body.client_id).toBeTruthy();
   return body.client_id;
 }
@@ -180,6 +186,25 @@ async function mcp(accessToken: string, name: string, args: Record<string, unkno
   );
   const body = res.status === 200 ? ((await res.json()) as any) : null;
   return { status: res.status, www: res.headers.get("www-authenticate"), data: body?.result?.structuredContent };
+}
+
+/** The whole flow for a user with the given vaults; returns tokens. */
+async function connect(email: string, pickOrgId: string, clientId?: string) {
+  const { prm, as } = await discovery();
+  const cid = clientId ?? (await register(as));
+  const browser = await signInBrowser(email);
+  const { verifier, challenge } = pkce();
+  const consent = await authorizeAndConsent(browser, as, prm.resource, cid, challenge, pickOrgId);
+  const t = await token(as, {
+    grant_type: "authorization_code",
+    code: consent.code!,
+    redirect_uri: REDIRECT,
+    client_id: cid,
+    code_verifier: verifier,
+    resource: prm.resource,
+  });
+  expect(t.status, JSON.stringify(t.body)).toBe(200);
+  return { clientId: cid, access: t.body.access_token as string, refresh: t.body.refresh_token as string, as, prm };
 }
 
 describe("MCP OAuth connector flow (end to end)", () => {
@@ -341,5 +366,159 @@ describe("MCP OAuth connector flow (end to end)", () => {
     expect(new URL(url).pathname).toBe("/oauth/login");
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Sign in to");
+  });
+  it("signing in from the connector's login page resumes straight into the vault picker", async () => {
+    const user = await signUp("fresh@oauth.test");
+    await createOrg(user, "Only", `only-${Date.now()}`);
+    const { prm, as } = await discovery();
+    const clientId = await register(as);
+    const browser = new Browser();
+    const authorize = new URL(as.authorization_endpoint);
+    authorize.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: REDIRECT,
+      scope: "openid offline_access",
+      state: "s",
+      code_challenge: pkce().challenge,
+      code_challenge_method: "S256",
+      resource: prm.resource,
+    }).toString();
+    const { url } = await browser.follow(authorize.toString());
+    const login = new URL(url);
+    expect(login.pathname).toBe("/oauth/login");
+    // Exactly what the page's script sends.
+    const res = await browser.fetch("/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({
+        email: user.email,
+        password: "password12345",
+        oauth_query: login.search.slice(1),
+      }),
+    });
+    expect(res.status).toBe(200);
+    const next = (await res.json()) as { url?: string };
+    expect(next.url, JSON.stringify(next)).toBeTruthy();
+    const picker = await browser.follow(next.url!);
+    expect(new URL(picker.url).pathname).toBe("/oauth/consent");
+    expect(await picker.res.text()).toContain('name="organization_id"');
+  });
+
+  it("the access token is a JWT for /api/mcp naming the user and the client", async () => {
+    const user = await signUp("claims@oauth.test");
+    const org = await createOrg(user, "C", `c-${Date.now()}`);
+    const { access, clientId } = await connect(user.email, org.id);
+    const claims = decodeJwt(access);
+    expect(claims.sub).toBe(user.userId);
+    expect(claims.azp).toBe(clientId);
+    expect([claims.aud].flat()).toContain(`${ORIGIN}/api/mcp`);
+    expect(typeof claims.exp).toBe("number");
+  });
+
+  it("refuses a forged token, a tampered one, and a minted mcp_ token shape it does not know", async () => {
+    const user = await signUp("forge@oauth.test");
+    const org = await createOrg(user, "F", `f-${Date.now()}`);
+    const { access, clientId } = await connect(user.email, org.id);
+    const { privateKey } = await generateKeyPair("RS256");
+    const forged = await new SignJWT({ azp: clientId, scope: "openid" })
+      .setProtectedHeader({ alg: "RS256", kid: decodeJwt(access).kid as string | undefined ?? "x" })
+      .setSubject(user.userId)
+      .setIssuer(String(decodeJwt(access).iss))
+      .setAudience(`${ORIGIN}/api/mcp`)
+      .setExpirationTime("1h")
+      .sign(privateKey);
+    expect((await mcp(forged, "list_vaults")).status).toBe(401);
+    const [h, p, sig] = access.split(".");
+    const tampered = `${h}.${Buffer.from(JSON.stringify({ ...decodeJwt(access), sub: "someone-else" })).toString("base64url")}.${sig}`;
+    void p;
+    expect((await mcp(tampered, "list_vaults")).status).toBe(401);
+    expect((await mcp("mcp_doesnotexist", "list_vaults")).status).toBe(401);
+    expect((await mcp(access, "list_vaults")).status).toBe(200);
+  });
+
+  it("a disabled account loses its connector at once, and gets it back when re-enabled", async () => {
+    const user = await signUp("disabled@oauth.test");
+    const org = await createOrg(user, "D", `d-${Date.now()}`);
+    const { access } = await connect(user.email, org.id);
+    expect((await mcp(access, "list_vaults")).status).toBe(200);
+    await setDisabled(user.userId, true);
+    expect((await mcp(access, "list_vaults")).status).toBe(401);
+    await setDisabled(user.userId, false);
+    expect((await mcp(access, "list_vaults")).status).toBe(200);
+  });
+
+  it("connecting the same client again re-asks for the vault and can retarget it", async () => {
+    const user = await signUp("retarget@oauth.test");
+    const a = await createOrg(user, "A", `ra-${Date.now()}`);
+    const b = await createOrg(user, "B", `rb-${Date.now()}`);
+    const aNotes = await seedVault(a.id, "A notes");
+    const bNotes = await seedVault(b.id, "B notes");
+    const first = await connect(user.email, a.id);
+    expect((await mcp(first.access, "list_vaults")).data).toEqual({ results: [{ vaultId: aNotes, name: "A notes" }] });
+    // Same client, already consented: the picker still shows (issue #211).
+    const second = await connect(user.email, b.id, first.clientId);
+    expect((await mcp(second.access, "list_vaults")).data).toEqual({ results: [{ vaultId: bNotes, name: "B notes" }] });
+  });
+
+  it("registers web (https) and native (loopback) clients, and refuses plain http elsewhere", async () => {
+    const { as } = await discovery();
+    expect(await register(as, "claude.ai", ["https://claude.ai/api/mcp/auth_callback"])).toBeTruthy();
+    expect(await register(as, "Claude Code", ["http://localhost:61234/callback"])).toBeTruthy();
+    const res = await app.fetch(
+      new Request(as.registration_endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: "evil",
+          redirect_uris: ["http://evil.example/cb"],
+          token_endpoint_auth_method: "none",
+        }),
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("a consent POST with a tampered authorization request binds nothing and issues nothing", async () => {
+    const user = await signUp("tamper@oauth.test");
+    const org = await createOrg(user, "T", `t-${Date.now()}`);
+    const { prm, as } = await discovery();
+    const clientId = await register(as);
+    const victimClient = await register(as, "Victim app");
+    const browser = await signInBrowser(user.email);
+    const authorize = new URL(as.authorization_endpoint);
+    authorize.search = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: REDIRECT,
+      scope: "openid offline_access",
+      state: "s",
+      code_challenge: pkce().challenge,
+      code_challenge_method: "S256",
+      resource: prm.resource,
+    }).toString();
+    const { url } = await browser.follow(authorize.toString());
+    const signed = new URL(url).searchParams;
+    signed.set("client_id", victimClient);
+    const res = await browser.fetch("/oauth/consent", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ oauth_query: signed.toString(), organization_id: org.id, decision: "allow" }).toString(),
+    });
+    expect(res.status).toBe(400);
+    const { rows } = await pool.query("SELECT 1 FROM mcp_oauth_vault WHERE client_id = $1", [victimClient]);
+    expect(rows).toHaveLength(0);
+  });
+  it("a session JWT from /api/auth/token is not an MCP access token", async () => {
+    const user = await signUp("sessionjwt@oauth.test");
+    await createOrg(user, "S", `s-${Date.now()}`);
+    const res = await app.fetch(
+      new Request(`${ORIGIN}/api/auth/token`, { headers: { authorization: `Bearer ${user.token}` } }),
+    );
+    expect(res.status).toBe(200);
+    const { token: sessionJwt } = (await res.json()) as { token: string };
+    expect(sessionJwt.split(".")).toHaveLength(3);
+    // Signed by the same keys, but not issued for the /api/mcp audience.
+    expect((await mcp(sessionJwt, "list_vaults")).status).toBe(401);
   });
 });

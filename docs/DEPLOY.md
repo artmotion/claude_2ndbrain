@@ -482,10 +482,19 @@ Debian's fixes even before the upstream `node` image is refreshed.
   updates weekly, each at least 7 days after it was published.
 - **Audits:** `pnpm audit` (from `app/`) and `cargo audit` (from
   `app/apps/desktop/src-tauri/`). Accepted findings are listed with their reason
-  in `app/pnpm-workspace.yaml` (`auditConfig`) and
-  `app/apps/desktop/src-tauri/.cargo/audit.toml`; each says when it must go.
+  in `app/apps/desktop/src-tauri/.cargo/audit.toml`; each says when it must go.
 - **Secrets never enter an image:** the root `.dockerignore` keeps every `.env`,
   `deploy/compose/cloudflared/` and `data/` out of the build context.
+
+### Updating past migration 058 (AI connectors reconnect once)
+
+Migration 058 moves the OAuth sign-in for AI connectors (a Claude custom
+connector added with this server's `/api/mcp` URL) to better-auth 1.7. The old
+connector registrations and their tokens cannot be carried over, so after this
+update each such connector answers "authentication required" once: remove and
+add it again in Claude (or use its Reconnect button), sign in, and pick the
+vault. Nothing else changes: accounts, vaults, notes and minted `mcp_` tokens
+keep working as before.
 
 ## Scaling & high availability (spec 05)
 

@@ -37,19 +37,6 @@ ignoredBuiltDependencies:
 # explicit, reviewed exception here (minimumReleaseAgeExclude).
 minimumReleaseAge: 10080
 
-# Known advisories that do not apply here, each checked against this
-# configuration (2026-11-07). The server stays on better-auth 1.6.x because
-# 1.7 replaced the `mcp` plugin its OAuth connector flow is built on; these are
-# fixed only in 1.7.7 and each needs a plugin or setting this server does not
-# use. `apps/server/tests/auth-advisory-guard.test.ts` fails the moment one is
-# enabled — move to 1.7.7+ then, and drop the matching line.
-auditConfig:
-  ignoreGhsas:
-    - GHSA-965c-763c-88jm # critical: needs the magicLink plugin
-    - GHSA-r4xp-prcw-77qf # high: needs the oauthProxy plugin
-    - GHSA-q84f-53jg-9ppm # high: needs the deviceAuthorization plugin
-    - GHSA-44jh-23m7-hpcf # low: needs database-backed rate limiting
-
 # Security floors for transitive deps (Dependabot). dompurify and katex arrive
 # through mermaid; drop each entry once mermaid's own range requires the fixed
 # version.

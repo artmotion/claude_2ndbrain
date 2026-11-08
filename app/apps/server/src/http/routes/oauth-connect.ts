@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { verifyOAuthQueryParams } from "@better-auth/oauth-provider";
 import { pool } from "../../db/pool.js";
 import { auth, googleEnabled } from "../../auth/auth.js";
 import { config } from "../../config.js";
@@ -10,34 +11,52 @@ import { emailEnabled } from "../../email/mailer.js";
 import { esc, page } from "../pages.js";
 
 /**
- * The human-facing pages of the MCP OAuth flow (the Better Auth `mcp` plugin
- * drives the machinery; these are the screens it redirects a browser through):
+ * The human-facing pages of the MCP OAuth flow (`@better-auth/mcp` drives the
+ * machinery; these are the screens it redirects a browser through):
  *
- *   GET  /oauth/login    ← plugin's `loginPage`. Sign in to an existing account.
- *   GET  /oauth/consent  ← plugin's `consentPage`. Pick the vault + Allow.
+ *   GET  /oauth/login    ← provider's `loginPage`. Sign in to an existing account.
+ *   GET  /oauth/consent  ← provider's `consentPage`. Pick the vault + Allow.
  *   POST /oauth/consent  → records the vault binding, completes consent,
  *                          bounces back to the client's redirect_uri.
+ *
+ * The provider hands both pages the whole authorization request as a SIGNED
+ * query string (`sig`, `exp`). It travels back verbatim as `oauth_query`: on
+ * sign-in it lets the provider resume the authorization by itself, and on the
+ * consent POST it is what names the request being answered. Its signature is
+ * checked before we act on the client_id inside it.
  *
  * Served by this (headless) server itself so the flow works on api.secondbrain.example
  * and any self-hoster with no separate web frontend. Page chrome + branding come
  * from ../pages.ts (shared with the account pages).
  */
 
-const AUTHORIZE_PATH = "/api/auth/mcp/authorize";
+const AUTHORIZE_PATH = "/api/auth/oauth2/authorize";
 
 async function clientName(clientId: string | undefined): Promise<string> {
   if (!clientId) return "An application";
-  const { rows } = await pool.query<{ name: string }>(
-    'SELECT name FROM "oauthApplication" WHERE "clientId" = $1',
+  const { rows } = await pool.query<{ name: string | null }>(
+    'SELECT name FROM "oauthClient" WHERE "clientId" = $1',
     [clientId],
   );
   return rows[0]?.name?.trim() || "An application";
 }
 
+/** The signed authorization query of a provider redirect, or null when it is
+ *  missing, forged or expired. */
+async function verifiedQuery(raw: string): Promise<URLSearchParams | null> {
+  if (!raw) return null;
+  const secret = (await auth.$context).secret;
+  try {
+    return (await verifyOAuthQueryParams(raw, secret)) ? new URLSearchParams(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export const oauthConnectRoutes = new Hono();
 
 // ── Force the vault picker on every authorize (issue #211) ──────────────────
-// The mcp plugin issues a code straight away unless prompt=consent, and a
+// The provider issues a code straight away unless prompt=consent, and a
 // client whose user is already signed in in the browser never passes through
 // /oauth/login (where we used to add it). Its token then had no vault binding
 // and every call 401'd once the user belonged to two vaults. Mounted ahead of
@@ -53,14 +72,11 @@ oauthConnectRoutes.get(AUTHORIZE_PATH, async (c, next) => {
 oauthConnectRoutes.get("/oauth/login", async (c) => {
   const url = new URL(c.req.url);
   const app = await clientName(url.searchParams.get("client_id") ?? undefined);
-  // Re-enter authorize after sign-in with prompt=consent forced on. The Better
-  // Auth `mcp` plugin only shows a consent screen (our vault picker) when
-  // the request carries prompt=consent — clients like Claude don't send it, so
-  // we add it ourselves here (the one point in the flow we control).
-  const authorizeParams = new URLSearchParams(url.search);
-  authorizeParams.set("prompt", "consent");
-  const authorizeUrl = `${config.betterAuthUrl}${AUTHORIZE_PATH}?${authorizeParams.toString()}`;
-
+  // The provider's signed authorization request. Sent back with the sign-in,
+  // it lets the provider resume /oauth2/authorize for the new session itself
+  // (prompt=consent is already in it: the authorize redirect above added it),
+  // which lands on the vault picker.
+  const oauthQuery = url.search.replace(/^\?/, "");
   const google = googleEnabled
     ? `<div class="divider">or</div>
        <button type="button" id="google" class="btn ghost">
@@ -90,29 +106,33 @@ oauthConnectRoutes.get("/oauth/login", async (c) => {
     ${google}
     <p class="foot">Authorizing access for <b>${esc(app)}</b> to your ${esc(BRAND_NAME)} account.</p>
     <script>
-      const AUTHORIZE_URL = ${JSON.stringify(authorizeUrl)};
+      const OAUTH_QUERY = ${JSON.stringify(oauthQuery)};
       const errEl = document.getElementById('err');
       function showErr(m){ errEl.textContent = m; errEl.style.display='block'; }
+      // The provider answers a sign-in that carries oauth_query with where to
+      // go next ({ url }); without one (an expired page) there is nowhere.
+      function next(j){
+        const to = j && (j.url || j.redirect_uri);
+        if (to) window.location.assign(to);
+        else showErr('This sign-in link has expired. Start the connection again from your app.');
+      }
       document.getElementById('f').addEventListener('submit', async (e) => {
         e.preventDefault();
         errEl.style.display='none';
         const btn = e.target.querySelector('button'); btn.disabled = true; btn.textContent='Signing in…';
         try {
-          // redirect:'manual' — on success the mcp plugin's after-hook tries to
-          // auto-resume authorize and answers with a 3xx; we deliberately ignore
-          // that (opaqueredirect) and drive the browser to authorize ourselves,
-          // with prompt=consent, so the vault picker always shows.
           const res = await fetch('/api/auth/sign-in/email', {
-            method:'POST', credentials:'include', redirect:'manual',
-            headers:{'Content-Type':'application/json'},
+            method:'POST', credentials:'include',
+            headers:{'Content-Type':'application/json', 'Accept':'application/json'},
             body: JSON.stringify({
               email: document.getElementById('email').value,
-              password: document.getElementById('password').value
+              password: document.getElementById('password').value,
+              oauth_query: OAUTH_QUERY
             })
           });
-          const ok = (res.status >= 200 && res.status < 300) || res.type === 'opaqueredirect' || res.status === 0;
-          if (!ok) { const j = await res.json().catch(()=>({})); throw new Error(j.message || 'Invalid email or password'); }
-          window.location.assign(AUTHORIZE_URL);
+          const j = await res.json().catch(()=>({}));
+          if (!res.ok) throw new Error(j.message || 'Invalid email or password');
+          next(j);
         } catch (err) {
           showErr(err.message || 'Sign in failed'); btn.disabled=false; btn.textContent='Sign in';
         }
@@ -124,7 +144,7 @@ oauthConnectRoutes.get("/oauth/login", async (c) => {
           const res = await fetch('/api/auth/sign-in/social', {
             method:'POST', credentials:'include',
             headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ provider:'google', callbackURL: AUTHORIZE_URL })
+            body: JSON.stringify({ provider:'google', callbackURL: '/oauth/login?' + OAUTH_QUERY, oauth_query: OAUTH_QUERY })
           });
           const j = await res.json();
           if (j.url) window.location.assign(j.url); else throw new Error('Could not start Google sign-in');
@@ -134,10 +154,11 @@ oauthConnectRoutes.get("/oauth/login", async (c) => {
   return c.html(page({ title: "Sign in", body }));
 });
 
-// ── Consent page with vault picker (mcp plugin's consentPage) ───────────────
+// ── Consent page with vault picker (provider's consentPage) ────────────────
 oauthConnectRoutes.get("/oauth/consent", async (c) => {
-  const consentCode = c.req.query("consent_code") ?? "";
-  const clientId = c.req.query("client_id") ?? "";
+  const oauthQuery = new URL(c.req.url).search.replace(/^\?/, "");
+  const query = await verifiedQuery(oauthQuery);
+  const clientId = query?.get("client_id") ?? "";
   const session = await getSession(c);
   if (!session) {
     return c.html(
@@ -150,9 +171,12 @@ oauthConnectRoutes.get("/oauth/consent", async (c) => {
       400,
     );
   }
-  if (!consentCode || !clientId) {
+  if (!query || !clientId) {
     return c.html(
-      page({ title: "Invalid request", body: `<h1>Invalid request</h1><p class="sub">Missing authorization details.</p>` }),
+      page({
+        title: "Invalid request",
+        body: `<h1>Invalid request</h1><p class="sub">This authorization link is missing, expired or altered. Start the connection again from your app.</p>`,
+      }),
       400,
     );
   }
@@ -197,8 +221,7 @@ oauthConnectRoutes.get("/oauth/consent", async (c) => {
     <h1><b>${esc(app)}</b> wants access</h1>
     <p class="sub">Signed in as <b>${esc(session.email)}</b></p>
     <form method="POST" action="/oauth/consent">
-      <input type="hidden" name="consent_code" value="${esc(consentCode)}" />
-      <input type="hidden" name="client_id" value="${esc(clientId)}" />
+      <input type="hidden" name="oauth_query" value="${esc(oauthQuery)}" />
       <label>Choose a vault to connect</label>
       ${options}
       <div class="scopes"><ul>
@@ -217,8 +240,7 @@ oauthConnectRoutes.get("/oauth/consent", async (c) => {
 
 oauthConnectRoutes.post("/oauth/consent", async (c) => {
   const form = await c.req.parseBody();
-  const consentCode = typeof form.consent_code === "string" ? form.consent_code : "";
-  const clientId = typeof form.client_id === "string" ? form.client_id : "";
+  const oauthQuery = typeof form.oauth_query === "string" ? form.oauth_query : "";
   const organizationId =
     typeof form.organization_id === "string" ? form.organization_id : "";
   const accept = form.decision === "allow";
@@ -230,7 +252,11 @@ oauthConnectRoutes.post("/oauth/consent", async (c) => {
       400,
     );
   }
-  if (!consentCode) {
+  // The client_id comes from the provider's SIGNED query, never from a form
+  // field, so a crafted POST cannot bind a vault to some other client.
+  const query = await verifiedQuery(oauthQuery);
+  const clientId = query?.get("client_id") ?? "";
+  if (!query || !clientId) {
     return c.html(page({ title: "Invalid request", body: `<h1>Invalid request</h1>` }), 400);
   }
 
@@ -250,12 +276,28 @@ oauthConnectRoutes.post("/oauth/consent", async (c) => {
   }
 
   try {
-    const result = (await auth.api.oAuthConsent({
-      body: { accept, consent_code: consentCode },
-      headers: c.req.raw.headers,
-    })) as { redirectURI?: string };
-    if (result?.redirectURI) return c.redirect(result.redirectURI);
-    throw new Error("no redirect");
+    // Answered through the auth handler as a real request (the provider
+    // resumes /oauth2/authorize inside it, which needs the request itself),
+    // carrying the browser's own cookies and origin.
+    const headers = new Headers({
+      "content-type": "application/json",
+      accept: "application/json",
+      origin: new URL(config.betterAuthUrl).origin,
+    });
+    const cookie = c.req.header("cookie");
+    if (cookie) headers.set("cookie", cookie);
+    const authorization = c.req.header("authorization");
+    if (authorization) headers.set("authorization", authorization);
+    const res = await auth.handler(
+      new Request(`${config.betterAuthUrl.replace(/\/+$/, "")}/api/auth/oauth2/consent`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ accept, oauth_query: oauthQuery }),
+      }),
+    );
+    const result = (await res.json().catch(() => null)) as { url?: string } | null;
+    if (res.ok && result?.url) return c.redirect(result.url);
+    throw new Error(`consent answered ${res.status}`);
   } catch {
     return c.html(
       page({

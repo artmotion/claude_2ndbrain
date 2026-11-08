@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
-import { bearer, mcp, organization } from "better-auth/plugins";
+import { bearer, jwt, organization } from "better-auth/plugins";
+import { mcp } from "@better-auth/mcp";
 import { Algorithm, hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
 import pg from "pg";
 import { config } from "../config.js";
@@ -331,27 +332,43 @@ export const auth = betterAuth({
         },
       },
     }),
-    // OAuth 2.1 authorization server for MCP clients (spec: MCP integration).
-    // Lets a Claude "custom connector" run the standard discovery → dynamic
-    // client registration → PKCE authorize/consent → token flow against an
-    // EXISTING 2ndBrain account. The issued access token carries the user id, so
-    // POST /api/mcp resolves it to that user + the vault they picked on the
-    // consent screen and enforces the very same per-file ACL an mcp_ token does.
+    // Signs the OAuth access tokens below (JWT, audience-bound to /api/mcp)
+    // and serves their public keys. Keys live in the `jwks` table, private
+    // halves encrypted with JWT_SECRET. No `set-auth-jwt` header: nothing
+    // here wants a JWT for the app's own sessions, which stay opaque.
+    jwt({ disableSettingJwtHeader: true }),
+    // OAuth 2.1 authorization server for MCP clients (spec: MCP integration;
+    // `@better-auth/mcp`, which is `@better-auth/oauth-provider` bound to the
+    // MCP resource). Lets a Claude "custom connector" run the standard
+    // discovery → dynamic client registration → PKCE authorize/consent →
+    // token flow against an EXISTING 2ndBrain account. The access token names
+    // the user (`sub`) and the client (`azp`), so POST /api/mcp resolves it to
+    // that user + the vault they picked on the consent screen and enforces the
+    // very same per-file ACL an mcp_ token does (see mcp/oauth.ts).
     //
     // loginPage/consentPage are branded HTML we serve ourselves (see
     // routes/oauth-connect.ts) so the whole flow works on a headless server
-    // (api.secondbrain.example) and any self-hoster, with no separate web frontend.
+    // and for any self-hoster, with no separate web frontend.
     mcp({
-      // Canonical resource id advertised in the protected-resource metadata:
-      // the MCP endpoint clients actually POST to.
+      // Canonical resource id: the MCP endpoint clients actually POST to.
+      // Tokens are audience-bound to it.
       resource: `${config.betterAuthUrl}/api/mcp`,
       loginPage: `${config.betterAuthUrl}/oauth/login`,
-      oidcConfig: {
-        // loginPage is duplicated here only to satisfy OIDCOptions' type; the
-        // mcp plugin overrides it with the top-level `loginPage` above.
-        loginPage: `${config.betterAuthUrl}/oauth/login`,
-        consentPage: `${config.betterAuthUrl}/oauth/consent`,
-      },
+      consentPage: `${config.betterAuthUrl}/oauth/consent`,
+      // Claude registers itself (RFC 7591) before the user ever signs in, as
+      // a public PKCE client: registration must work without a session. It
+      // grants nothing by itself — every token still needs a signed-in,
+      // consenting user who picks one of their own vaults.
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+      clientRegistrationRequirePKCE: true,
+      // Claude Code, Cursor and other desktop clients register an
+      // http://127.0.0.1 / localhost callback without naming an
+      // application_type; "infer" treats those as native clients (loopback
+      // allowed) while web clients such as claude.ai keep the https rule.
+      clientRegistrationDefaultApplicationType: "infer",
+      scopes: ["openid", "profile", "email", "offline_access"],
+      grantTypes: ["authorization_code", "refresh_token"],
     }),
   ],
 });

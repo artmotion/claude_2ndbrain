@@ -829,6 +829,18 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   EXTRACTED TEXT of a file, never its bytes, through `filterReadableBlobs` / `canReadAttachment`.
   There is deliberately no `attach_file` — base64 over JSON-RPC with no idempotency key, against a
   byte path built to avoid exactly that (see the note in `tools.ts`).
+  **OAuth connectors** (a Claude custom connector) use `@better-auth/mcp` on better-auth 1.7
+  (`auth/auth.ts`, with the `jwt` plugin; migration 058 replaced the old `mcp`-plugin tables, so
+  connectors made before it reconnect once): discovery at `/.well-known/oauth-authorization-server`
+  and `/.well-known/oauth-protected-resource[/api/mcp]` (the latter answered by the plugin through
+  `auth.handler`), open dynamic registration (`clientRegistrationDefaultApplicationType: "infer"`
+  lets loopback-callback desktop clients register), `/api/auth/oauth2/authorize` forced to
+  `prompt=consent` so the vault picker (`routes/oauth-connect.ts`) always shows; the page posts the
+  provider's SIGNED `oauth_query` back (signature checked before the client_id in it binds a vault
+  in `mcp_oauth_vault`). Access tokens are JWTs for the `/api/mcp` audience; `mcp/oauth.ts
+  verifyMcpAccessToken` checks them against the in-process JWKS (never over HTTP), refuses DPoP-bound
+  ones, and `resolveOAuthMcpAuth` re-checks disabled accounts and vault membership on every call.
+  `tests/mcp-oauth-flow.test.ts` drives the whole flow end to end.
   Token = `mcp_…` minted from desktop Vault Settings → MCP; scoped to one (user, vault), gated by
   the **same** per-file ACL. Only a sha256 hash is stored.
 - `index/` — `embedder.ts` is a dependency-free 256-dim hashed bag-of-words (works air-gapped;
@@ -866,9 +878,8 @@ billing variables (`POLAR_*`, `BILLING_MODEL`, `TEAM_*`, `ABUSE_MAX_*`, `FREE_MA
 - **Supply chain.** pnpm refuses versions younger than 7 days (`minimumReleaseAge` in
   `app/pnpm-workspace.yaml`), Dependabot proposes updates with the same 7-day cooldown, and every
   GitHub Action is pinned to a commit SHA (version in a trailing comment). Audit exceptions live in
-  `pnpm-workspace.yaml auditConfig.ignoreGhsas` and `src-tauri/.cargo/audit.toml`, each with its
-  reason; the server stays on better-auth 1.6.x (1.7 replaced the `mcp` plugin) and
-  `tests/auth-advisory-guard.test.ts` fails if a plugin those exceptions depend on is enabled.
+  `src-tauri/.cargo/audit.toml` (the dormant updater's zip 4), with its reason; `pnpm audit` has
+  none.
 - **`doc_id` is identity.** Never resolve or store a note by path across layers.
 - **`rel_path` and `folder_id` must agree.** A note/file/folder's location is stored twice; the server
   derives or validates the parent from the path on every create and move

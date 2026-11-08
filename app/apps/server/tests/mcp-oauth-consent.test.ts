@@ -16,11 +16,11 @@ app.get("/api/auth/*", (c) => {
 describe("MCP authorize always shows the vault picker", () => {
   it("redirects an authorize without prompt=consent to one with it", async () => {
     const res = await app.request(
-      "/api/auth/mcp/authorize?client_id=abc&response_type=code&state=s1&redirect_uri=http%3A%2F%2F127.0.0.1%3A5000%2Fcb",
+      "/api/auth/oauth2/authorize?client_id=abc&response_type=code&state=s1&redirect_uri=http%3A%2F%2F127.0.0.1%3A5000%2Fcb",
     );
     expect(res.status).toBe(302);
     const loc = new URL(res.headers.get("location")!);
-    expect(loc.origin + loc.pathname).toBe(`${config.betterAuthUrl}/api/auth/mcp/authorize`);
+    expect(loc.origin + loc.pathname).toBe(`${config.betterAuthUrl}/api/auth/oauth2/authorize`);
     expect(loc.searchParams.get("prompt")).toBe("consent");
     expect(loc.searchParams.get("client_id")).toBe("abc");
     expect(loc.searchParams.get("state")).toBe("s1");
@@ -28,14 +28,14 @@ describe("MCP authorize always shows the vault picker", () => {
   });
 
   it("overrides another prompt value", async () => {
-    const res = await app.request("/api/auth/mcp/authorize?client_id=abc&prompt=none");
+    const res = await app.request("/api/auth/oauth2/authorize?client_id=abc&prompt=none");
     expect(res.status).toBe(302);
     expect(new URL(res.headers.get("location")!).searchParams.get("prompt")).toBe("consent");
   });
 
   it("passes an authorize that already carries prompt=consent to Better Auth", async () => {
     reached.length = 0;
-    const res = await app.request("/api/auth/mcp/authorize?client_id=abc&prompt=consent");
+    const res = await app.request("/api/auth/oauth2/authorize?client_id=abc&prompt=consent");
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("better-auth");
     expect(reached).toHaveLength(1);

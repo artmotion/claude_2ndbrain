@@ -4,7 +4,7 @@ import { NOTES_WITH_STATE_FEATURE } from "../registry/seed-on-register.js";
 import { BOOTSTRAP_ONLY_FEATURE } from "./routes/bootstrap.js";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
-import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from "better-auth/plugins";
+import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
 import { config } from "../config.js";
 import { auth } from "../auth/auth.js";
 import { throttledSignIn } from "../auth/signin-throttle.js";
@@ -261,40 +261,26 @@ export function createApp(deps: AppDeps): Hono {
 </html>`),
   );
 
-  // ── MCP OAuth discovery (RFC 8414 / RFC 9728) ─────────────────────────────
-  // These MUST sit at the origin root: our protected-resource metadata names
+  // ── MCP OAuth discovery (RFC 8414 / RFC 9728 / OIDC) ──────────────────────
+  // These MUST sit at the origin root: the protected-resource metadata names
   // the origin as the authorization server, so an MCP client (e.g. a Claude
   // custom connector) fetches /.well-known/* from the origin, not /api/auth.
-  // The helpers proxy to the Better Auth `mcp` plugin's own endpoints.
-  app.get("/.well-known/oauth-authorization-server", (c) =>
-    oAuthDiscoveryMetadata(auth)(c.req.raw),
-  );
-  app.get("/.well-known/oauth-protected-resource", (c) =>
-    oAuthProtectedResourceMetadata(auth)(c.req.raw),
-  );
-  // RFC 9728 §3.1 path-suffixed form for the MCP endpoint: a client that knows
-  // the resource as <origin>/api/mcp asks here first (production saw it 404).
-  // Same metadata, with `resource` naming that exact URL as §3.3 requires.
-  app.get("/.well-known/oauth-protected-resource/api/mcp", async (c) => {
-    const res = await oAuthProtectedResourceMetadata(auth)(c.req.raw);
-    if (!res.ok) return res;
-    const body = (await res.json()) as Record<string, unknown>;
-    // The plugin's `resource` already IS <origin>/api/mcp; only an origin-only
-    // value gets the suffix (appending blindly answered …/api/mcp/api/mcp).
-    const raw = typeof body.resource === "string" ? body.resource : new URL(c.req.url).origin;
-    const base = raw.replace(/\/+$/, "");
-    const resource = base.endsWith("/api/mcp") ? base : `${base}/api/mcp`;
-    return new Response(JSON.stringify({ ...body, resource }), {
-      status: res.status,
-      headers: res.headers,
-    });
-  });
+  // The authorization-server documents come from `@better-auth/oauth-provider`;
+  // the protected-resource document is served by `@better-auth/mcp` itself
+  // (its request hook answers /.well-known/oauth-protected-resource and the
+  // /api/mcp-suffixed form), so it is handed straight to the auth handler.
+  const authServerMetadata = oauthProviderAuthServerMetadata(auth);
+  app.get("/.well-known/oauth-authorization-server", (c) => authServerMetadata(c.req.raw));
   // Clients following the older MCP discovery treat the MCP URL as the issuer
   // and insert its path (RFC 8414 §3.1). Our issuer is the origin, so this is
   // the same document as the bare one.
-  app.get("/.well-known/oauth-authorization-server/api/mcp", (c) =>
-    oAuthDiscoveryMetadata(auth)(c.req.raw),
-  );
+  app.get("/.well-known/oauth-authorization-server/api/mcp", (c) => authServerMetadata(c.req.raw));
+  const openIdMetadata = oauthProviderOpenIdConfigMetadata(auth);
+  app.get("/.well-known/openid-configuration", (c) => openIdMetadata(c.req.raw));
+  app.get("/.well-known/oauth-protected-resource", (c) => auth.handler(c.req.raw));
+  // RFC 9728 §3.1 path-suffixed form for the MCP endpoint: a client that knows
+  // the resource as <origin>/api/mcp asks here first.
+  app.get("/.well-known/oauth-protected-resource/api/mcp", (c) => auth.handler(c.req.raw));
   // The human-facing login + consent screens of that OAuth flow.
   app.route("/", oauthConnectRoutes);
   // Account pages the emails link to: forgot/reset password, email verified,

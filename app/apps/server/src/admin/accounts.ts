@@ -98,7 +98,12 @@ export async function createUser(input: {
   if (await ctx.internalAdapter.findUserByEmail(email)) {
     throw new AccountError("email_taken", `An account for ${email} already exists.`);
   }
-  const user = await ctx.internalAdapter.createUser({ email, name, emailVerified: true });
+  // `admin`: the owner provisions accounts in the admin panel; this fork has
+  // no self sign-up (better-auth 1.7 records the provisioning source).
+  const user = await ctx.internalAdapter.createUser(
+    { email, name, emailVerified: true },
+    { method: "admin" },
+  );
   await ctx.internalAdapter.linkAccount({
     userId: user.id,
     providerId: "credential",
