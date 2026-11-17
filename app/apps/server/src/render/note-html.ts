@@ -124,6 +124,9 @@ interface ListFrame {
 const LIST_ITEM_RE = /^(\s*)(?:[-*+]|\d+[.)])\s+(.*)$/;
 const ORDERED_RE = /^\s*\d+[.)]\s/;
 
+/** A rotated header cell's marker, as it reads after HTML escaping. */
+const ROTATE_MARKER_RE = /^(?:&lt;|&#60;)!--\s*rotate:\s*([+-]?\s*90)\s*--(?:&gt;|&#62;)\s*/i;
+
 /** `| --- | :---: |` — the row that makes the line above it a table header. */
 const TABLE_SEP_RE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 
@@ -218,7 +221,18 @@ function renderBlocks(lines: string[], opts: RenderOptions): string {
       const cell = (text: string, tag: "th" | "td", col: number): string => {
         const align = aligns[col] ?? "left";
         const style = align === "left" ? "" : ` style="text-align:${align}"`;
-        return `<${tag}${style}>${renderInline(text, opts)}</${tag}>`;
+        // A header's rotation marker (`<!--rotate:90-->` / `-90`, the desktop's
+        // table/rotation.ts) turns the title; the comment itself never shows.
+        let cls = "";
+        if (tag === "th") {
+          const m = ROTATE_MARKER_RE.exec(text);
+          if (m) {
+            text = text.slice(m[0].length);
+            cls = m[1]!.replace(/\s+/g, "").startsWith("-") ? ' class="rot-down"' : ' class="rot-up"';
+          }
+        }
+        const inner = cls ? `<span>${renderInline(text, opts)}</span>` : renderInline(text, opts);
+        return `<${tag}${cls}${style}>${inner}</${tag}>`;
       };
       const header = splitRow(line);
       const rows: string[][] = [];

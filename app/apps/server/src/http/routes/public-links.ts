@@ -284,6 +284,11 @@ const PAGE_CSS = `
   .md-table th, .md-table td { border: 1px solid var(--border); padding: 6px 12px;
                                text-align: left; vertical-align: top; max-width: 42ch; }
   .md-table th { font-weight: 600; background: var(--bg-soft); }
+  .md-table th.rot-up, .md-table th.rot-down { padding: 8px 4px; text-align: center; }
+  .md-table th.rot-up { vertical-align: bottom; } .md-table th.rot-down { vertical-align: top; }
+  .md-table th.rot-up > span, .md-table th.rot-down > span { display: block; writing-mode: vertical-rl;
+    max-height: 42ch; margin-inline: auto; }
+  .md-table th.rot-up > span { transform: rotate(180deg); }
   .md-table::-webkit-scrollbar { height: 8px; }
   .md-table::-webkit-scrollbar-thumb { background-color: var(--border); border-radius: 4px; }
   .md-table::-webkit-scrollbar-track { background: transparent; }

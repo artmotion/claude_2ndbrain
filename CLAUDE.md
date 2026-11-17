@@ -41,7 +41,8 @@ Three pieces; this open-source repo holds the first two.
   refusals anywhere; every server behaves as the old billing-disabled self-host (unlimited, the
   Assistant and standalone-file sync always on). Migration 056 drops the billing tables; the older
   billing migrations stay for databases that already applied them.
-- **iPad app** (same `app/apps/desktop` crate, Tauri iOS) — `.github/workflows/ios-build.yml` runs
+- **iPad app** (same `app/apps/desktop` crate, Tauri iOS) — `.github/workflows/ios-build.yml` (off on
+  push unless the repository variable `IOS_BUILD_ENABLED` is `true`; manual dispatch always runs) runs
   `tauri ios init --ci` (the Xcode project under `src-tauri/gen/apple` is generated, not committed),
   builds unsigned for the simulator and for devices, screenshots the app in an iPad simulator and
   publishes the `.ipa` to the `ios-dev` prerelease. iOS config: `tauri.ios.conf.json` +
@@ -465,6 +466,20 @@ right-click in the text opens `components/EditorContextMenu.tsx` over the pure m
 `lib/editor/contextMenu.ts` (clipboard, bold/italic/underline `<u>`, H1–H6 flyout, link, table,
 find); every item runs the same command as its shortcut (`formatting.ts`), tables and the title /
 Properties widgets keep their own right-click.
+
+Undo/redo is one module, `lib/editor/undo.ts`: the bridge's `Y.UndoManager` for CRDT notes (facet
+`undoTarget`), CM6 `history()` otherwise. Keys Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z (⌘Z / ⌘⇧Z) at
+`Prec.high`, macOS `historyUndo`/`historyRedo` input events, and `undoKeyFallback` (window listener in
+`Editor.tsx`) for focus outside the editor text (after a table action). `undoWordSteps` (listed BEFORE
+`yCollab`) calls `stopCapturing()` at word starts, typing↔deleting switches, caret jumps and around
+pastes/commands, because Yjs's 500 ms capture window otherwise made a whole typed line one step. Undo
+and Redo are also the first items of the editor and table-cell menus (iPad has no keyboard). A table
+cell's input keeps native undo while its draft differs; untouched, the keys go to the note. Every
+table-menu action first commits and closes the open cell (`closeOpenCell`), or its later blur wrote
+the draft into the row that moved into its place. A header cell can be rotated (menu: up 90° /
+down −90° / horizontal): stored as `<!--rotate:90-->` / `<!--rotate:-90-->` at the start of the header
+cell (`table/rotation.ts`), hidden by every Markdown renderer, rendered with vertical `writing-mode`
+here and on the public page (`render/note-html.ts`).
 
 Above the body sit two more block decorations, both React inside a CM6 widget (`lib/editor/noteHeader.ts`;
 `updateDOM` returns **true** so the host node — and the focused `<input>` — survives a remote keystroke,

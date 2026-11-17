@@ -37,6 +37,11 @@ env:
 
 jobs:
   build:
+    # Switched OFF by default to save macOS build minutes while no iPad install
+    # is possible. Pushes build the iPad app only when the repository variable
+    # IOS_BUILD_ENABLED is "true" (Settings -> Secrets and variables -> Actions
+    # -> Variables). A manual "Run workflow" (workflow_dispatch) always builds.
+    if: github.event_name == 'workflow_dispatch' || vars.IOS_BUILD_ENABLED == 'true'
     runs-on: macos-latest
     timeout-minutes: 120
     defaults:

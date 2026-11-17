@@ -54,6 +54,9 @@ import {
   type TableModel,
 } from "./parse";
 import { renderCellInto } from "./render";
+import { headerRotation, type HeaderRotation, withHeaderRotation } from "./rotation";
+import { canRedo, canUndo, editorRedo, editorUndo, historyKeyAction } from "../undo";
+import { usesCommandKey } from "../../shortcutLabel";
 
 /** Shared with the other block replace widgets — see `BLOCK_INSET_CLASS`. */
 const INSET = "cm-block-inset";
@@ -202,6 +205,13 @@ function EditableTable({
   );
 
   /**
+   * What the cell's input shows. A header's rotation marker (`./rotation`) is
+   * not text a person types: the input holds the title alone and `commit`
+   * puts the marker back.
+   */
+  const editTextOf = (r: number, raw: string): string => (r === 0 ? headerRotation(raw).text : raw);
+
+  /**
    * Write `text` into (r, c) plus whatever `extra` adds, as ONE transaction.
    * Both halves are planned against the same live model, so their offsets are
    * in the same coordinate space and CM6 maps them together.
@@ -220,7 +230,9 @@ function EditableTable({
         if (cell && cell.raw !== rawAtStart.current) {
           setNote("Changed by someone else while you were typing.");
         }
-        changes.push(...planFillCell(row, c, text));
+        const deg = r === 0 ? headerRotation(cell?.raw ?? "").deg : 0;
+        const written = deg !== 0 ? withHeaderRotation(text, deg) : text;
+        if (!cell || cell.raw !== written) changes.push(...planFillCell(row, c, written));
       }
       if (extra) changes.push(...extra(live));
       dispatchChanges(view, changes);
@@ -241,7 +253,7 @@ function EditableTable({
       const raw = cellRaw(r, c);
       handledCell.current = null;
       rawAtStart.current = raw;
-      setDraft(raw);
+      setDraft(editTextOf(r, raw));
       setEditing({ row: r, col: c, caret });
     },
     [readOnly, cellRaw, editing, draft, commit],
@@ -261,7 +273,7 @@ function EditableTable({
       const after = liveModel();
       const raw = after ? (rowOf(after, next.row)?.cells[next.col]?.raw ?? "") : "";
       rawAtStart.current = raw;
-      setDraft(raw);
+      setDraft(editTextOf(next.row, raw));
       setEditing({ row: next.row, col: next.col, caret: null });
     },
     [editing, draft, commit, liveModel],
@@ -298,6 +310,29 @@ function EditableTable({
     const at = Math.max(0, Math.min(caret, el.value.length));
     el.setSelectionRange(at, at);
   }, [editing]);
+
+  /**
+   * Write the open cell's draft (if it changed) and close it, BEFORE anything
+   * else reshapes the table. A structural action used to run with the cell
+   * still open; its later blur then wrote the draft into whatever now sat at
+   * that (row, col) — "Delete row" left the deleted cell's text overwriting
+   * the row that moved up into its place.
+   */
+  const closeOpenCell = useCallback(() => {
+    if (!editing) return;
+    handledCell.current = `${editing.row}:${editing.col}`;
+    if (draft !== editTextOf(editing.row, rawAtStart.current)) commit(editing.row, editing.col, draft);
+    setEditing(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, draft, commit]);
+
+  /** Set a header cell's rotation (`./rotation`), one transaction. */
+  const rotateHeader = (col: number, deg: HeaderRotation) =>
+    structural((live) => {
+      const cell = live.header.cells[col];
+      const next = withHeaderRotation(cell?.raw ?? "", deg);
+      return cell?.raw === next ? [] : planFillCell(live.header, col, next);
+    });
 
   // ---- structural actions (menu + hover affordances) ----
 
@@ -349,6 +384,19 @@ function EditableTable({
     if (!editing) return;
     const { row, col } = editing;
     const lastRow = rowCount - 1;
+    // Ctrl+Z / Ctrl+Y (⌘Z / ⌘⇧Z). While the cell holds typing of its own the
+    // input's native undo takes it back; an untouched cell hands the keys to
+    // the NOTE's history, so the table's earlier edits can be undone and
+    // redone without leaving the cell first.
+    const history = historyKeyAction(e.nativeEvent, usesCommandKey());
+    if (history && draft === editTextOf(row, rawAtStart.current)) {
+      e.preventDefault();
+      handledCell.current = `${row}:${col}`;
+      setEditing(null);
+      if (history === "undo") editorUndo(view);
+      else editorRedo(view);
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       // Revert: the draft is dropped, so the cell's blur must not write it.
@@ -402,13 +450,13 @@ function EditableTable({
       onNavigate(wiki.dataset.target);
       return;
     }
-    startEdit(r, c, caretFromClick(e, cellRaw(r, c)));
+    startEdit(r, c, caretFromClick(e, editTextOf(r, cellRaw(r, c))));
   };
 
   /** A cell's interior: its input while it is open, its rendered markdown otherwise. */
   const cellBody = (r: number, c: number) => {
     const open = editing?.row === r && editing.col === c;
-    if (!open) return <CellContent raw={cellRaw(r, c)} />;
+    if (!open) return <CellContent raw={editTextOf(r, cellRaw(r, c))} />;
     return (
       <input
         ref={inputRef}
@@ -452,11 +500,22 @@ function EditableTable({
         <table>
           <thead>
             <tr>
-              {cols.map((c) => (
-                <th key={c} {...cellProps(0, c)}>
-                  {cellBody(0, c)}
-                </th>
-              ))}
+              {cols.map((c) => {
+                const props = cellProps(0, c);
+                const deg = headerRotation(cellRaw(0, c)).deg;
+                // The open cell edits horizontally; only the rendered title turns.
+                const turned = deg !== 0 && props.className !== "cm-md-cell-open";
+                const rot = turned ? (deg === 90 ? "cm-md-th-rot-up" : "cm-md-th-rot-down") : undefined;
+                return (
+                  <th
+                    key={c}
+                    {...props}
+                    className={[props.className, rot].filter(Boolean).join(" ") || undefined}
+                  >
+                    {cellBody(0, c)}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -493,10 +552,29 @@ function EditableTable({
           menu={menu}
           canDeleteRow={menu.row > 0}
           canDeleteColumn={columns > 1}
+          canUndo={canUndo(view)}
+          canRedo={canRedo(view)}
+          rotation={menu.row === 0 ? headerRotation(cellRaw(0, menu.col)).deg : null}
           onClose={() => setMenu(null)}
           onAction={(action) => {
             setMenu(null);
+            closeOpenCell();
             switch (action) {
+              case "undo":
+                editorUndo(view);
+                break;
+              case "redo":
+                editorRedo(view);
+                break;
+              case "rotate-up":
+                rotateHeader(menu.col, 90);
+                break;
+              case "rotate-down":
+                rotateHeader(menu.col, -90);
+                break;
+              case "rotate-none":
+                rotateHeader(menu.col, 0);
+                break;
               case "row-above":
                 insertRowAt(menu.row, "above");
                 break;
@@ -556,6 +634,11 @@ function CellContent({ raw }: { raw: string }) {
 }
 
 type MenuAction =
+  | "undo"
+  | "redo"
+  | "rotate-up"
+  | "rotate-down"
+  | "rotate-none"
   | "row-above"
   | "row-below"
   | "col-left"
@@ -575,12 +658,19 @@ function CellContextMenu({
   menu,
   canDeleteRow,
   canDeleteColumn,
+  canUndo,
+  canRedo,
+  rotation,
   onClose,
   onAction,
 }: {
   menu: CellMenu;
   canDeleteRow: boolean;
   canDeleteColumn: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  /** The header cell's rotation; `null` in a body row (no rotate items). */
+  rotation: HeaderRotation | null;
   onClose: () => void;
   onAction: (action: MenuAction) => void;
 }) {
@@ -610,10 +700,10 @@ function CellContextMenu({
     );
   }, [menu]);
 
-  const item = (action: MenuAction, label: string, enabled = true) => (
+  const item = (action: MenuAction, label: string, enabled = true, separated = false) => (
     <li
       key={action}
-      className={enabled ? undefined : "disabled"}
+      className={[enabled ? "" : "disabled", separated ? "menu-sep-item" : ""].filter(Boolean).join(" ") || undefined}
       onClick={() => enabled && onAction(action)}
     >
       {label}
@@ -632,7 +722,16 @@ function CellContextMenu({
           : { position: "fixed", left: 0, top: 0, right: "auto", visibility: "hidden" }
       }
     >
-      {item("row-above", "Insert row above", menu.row > 0)}
+      {item("undo", "Undo", canUndo)}
+      {item("redo", "Redo", canRedo)}
+      {rotation !== null && (
+        <>
+          {item("rotate-up", "Rotate header up (90°)", rotation !== 90, true)}
+          {item("rotate-down", "Rotate header down (−90°)", rotation !== -90)}
+          {item("rotate-none", "Horizontal header", rotation !== 0)}
+        </>
+      )}
+      {item("row-above", "Insert row above", menu.row > 0, true)}
       {item("row-below", "Insert row below")}
       {item("col-left", "Insert column left")}
       {item("col-right", "Insert column right")}

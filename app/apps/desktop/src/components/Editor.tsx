@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import "./editor.css";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { keymap, EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { Compartment, EditorState } from "@codemirror/state";
-import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
+import { yCollab } from "y-codemirror.next";
+import { undoKeyFallback, undoTarget, undoWordSteps } from "../lib/editor/undo";
 import { remoteCursors } from "../lib/editor/remoteCursors";
 import type { Awareness } from "y-protocols/awareness";
 import { createEditorState, lineNumberExtension } from "../lib/editor";
@@ -411,6 +412,11 @@ export function Editor() {
   // PDF, a spreadsheet, an unknown type — is `FilePreview`'s business.
   const isNoteEditor = notePath != null && viewerFor(notePath) === "editor";
 
+  // Ctrl+Z / Ctrl+Y (⌘Z / ⌘⇧Z) while the focus sits outside the editor's own
+  // text — on the page after a table action, on a table's buttons — still
+  // undo/redo the open note (lib/editor/undo.ts). Text fields keep their own.
+  useEffect(() => undoKeyFallback(() => viewRef.current), []);
+
   // The roster opens on hover/focus of the presence stack (below); these keep it
   // honest for the pointer/keyboard paths too — a press outside closes it, as
   // does Escape. Keyed only on `rosterOpen` (not on the peer list) so the steady
@@ -627,11 +633,14 @@ export function Editor() {
         saveAttachment: (bytes, ext) => saveAttachment(bytes, ext, epoch),
         copyAttachments: { notePath, read: path => ipc.readBinaryFile(path, epoch) },
         extraExtensions: [
+          // Word-sized undo steps; BEFORE yCollab so a step is closed before
+          // the sync plugin writes the keystroke into the Y.Text (./undo.ts).
+          undoWordSteps(bridge.undoManager),
+          undoTarget.of(bridge.undoManager),
           yCollab(bridge.text, awareness, { undoManager: bridge.undoManager }),
           // Our own animated carets + always-on name flags, over yCollab's
           // selection highlight (its inline caret is hidden in editor.css).
           remoteCursors(bridge.text, awareness),
-          keymap.of(yUndoManagerKeymap),
           // Publish "editing line N" so peers can see where everyone is.
           EditorView.updateListener.of((u) => {
             if (!u.selectionSet && !u.docChanged && !u.focusChanged) return;

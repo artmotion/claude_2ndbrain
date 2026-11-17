@@ -145,3 +145,14 @@ describe("stripFrontmatter / relAssetPath", () => {
     expect(relAssetPath("a\\b.png")).toBeNull();
   });
 });
+
+describe("renderNoteHtml — rotated table headers", () => {
+  it("turns a marked header and never shows the marker", () => {
+    const md = ["| <!--rotate:90--> Reps | <!--rotate:-90--> Sets | Name |", "| --- | --- | --- |", "| 10 | 3 | Squat |"].join("\n");
+    const { bodyHtml } = renderNoteHtml(md, noAssets);
+    expect(bodyHtml).toContain('<th class="rot-up"><span>Reps</span></th>');
+    expect(bodyHtml).toContain('<th class="rot-down"><span>Sets</span></th>');
+    expect(bodyHtml).toContain("<th>Name</th>");
+    expect(bodyHtml).not.toContain("rotate:");
+  });
+});

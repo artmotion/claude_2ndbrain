@@ -1,4 +1,4 @@
-// What a right-click in the note editor offers: the clipboard, the everyday
+// What a right-click in the note editor offers: undo/redo, the clipboard, the everyday
 // markdown formats, headings H1–H6, a link, a table, and find & replace.
 //
 // Pure model: items are plain data plus a `run(view)`, so the menu component
@@ -13,6 +13,7 @@ import type { EditorView } from "@codemirror/view";
 import { shortcutLabel, usesCommandKey } from "../shortcutLabel";
 import type { Platform } from "../platform";
 import { openFind, openReplace } from "./findReplace";
+import { canRedo, canUndo, editorRedo, editorUndo } from "./undo";
 import { headingLevelAt, insertLink, insertTable, setHeading, toggleInline, toggleWrap } from "./formatting";
 
 export interface EditorMenuItem {
@@ -70,8 +71,13 @@ export function editorMenuItems(view: EditorView, ctx: EditorMenuContext): Edito
   const ro = state.readOnly;
   const empty = state.selection.ranges.every((r) => r.empty);
   const key = (mac: string) => shortcutLabel(mac, ctx.platform);
+  const mac = usesCommandKey(ctx.platform);
   const items: EditorMenuItem[] = [
-    { key: "cut", label: "Cut", shortcut: key("⌘X"), disabled: ro || empty, run: (v) => exec(v, "cut") },
+    // The same history Ctrl+Z / Ctrl+Y walk (./undo.ts) — on iPad, where there
+    // is often no keyboard, this menu is the way to reach it.
+    { key: "undo", label: "Undo", shortcut: key("⌘Z"), disabled: ro || !canUndo(view), run: command(editorUndo) },
+    { key: "redo", label: "Redo", shortcut: mac ? "⇧⌘Z" : "Ctrl+Y", disabled: ro || !canRedo(view), run: command(editorRedo) },
+    { key: "cut", label: "Cut", shortcut: key("⌘X"), disabled: ro || empty, separated: true, run: (v) => exec(v, "cut") },
     { key: "copy", label: "Copy", shortcut: key("⌘C"), disabled: empty, run: (v) => exec(v, "copy") },
     { key: "paste", label: "Paste", shortcut: key("⌘V"), disabled: ro, run: (v) => paste(v, ctx) },
   ];

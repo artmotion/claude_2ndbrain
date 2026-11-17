@@ -75,6 +75,8 @@ describe("EditorContextMenu", () => {
     open("hello world", 0);
     const labels = [...menus()[0]!.querySelectorAll(".editor-menu-label")].map((e) => e.textContent);
     expect(labels).toEqual([
+      "Undo",
+      "Redo",
       "Cut",
       "Copy",
       "Paste",

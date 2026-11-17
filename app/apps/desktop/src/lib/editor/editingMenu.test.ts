@@ -179,6 +179,8 @@ describe("the right-click menu model", () => {
     const view = mount("# Title\nbody", { at: 3 });
     const items = editorMenuItems(view, { plain: false, platform: "windows" });
     expect(items.map((i) => i.key)).toEqual([
+      "undo",
+      "redo",
       "cut",
       "copy",
       "paste",
@@ -239,6 +241,8 @@ describe("the right-click menu model", () => {
   it("a .txt note gets no markdown formatting", () => {
     const view = mount("plain");
     expect(editorMenuItems(view, { plain: true }).map((i) => i.key)).toEqual([
+      "undo",
+      "redo",
       "cut",
       "copy",
       "paste",

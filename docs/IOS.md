@@ -14,8 +14,11 @@ GitHub Actions and install it yourself.
 
 ## Get a build
 
-Every push to `main` or the working branch runs `.github/workflows/ios-build.yml`
-on a GitHub-hosted Mac (free for a public repository). It publishes to the
+`.github/workflows/ios-build.yml` runs on a GitHub-hosted Mac (free for a public
+repository). It is **off on push by default** (2026-11-17, to save build time):
+a push builds only when the repository variable `IOS_BUILD_ENABLED` is `true`
+(Settings → Secrets and variables → Actions → Variables); Actions → iOS build →
+Run workflow always builds. It publishes to the
 rolling **`ios-dev`** prerelease:
 
 - `2ndBrain-unsigned.ipa`: the device build, unsigned;

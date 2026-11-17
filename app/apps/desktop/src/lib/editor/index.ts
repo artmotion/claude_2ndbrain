@@ -5,6 +5,7 @@
 
 import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { undoBeforeInput, undoKeymap } from "./undo";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
 import { searchKeymap } from "@codemirror/search";
@@ -184,6 +185,10 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     //   Mod-l          task toggle        Tab/Shift-Tab list indent
     // (Enter is lang-markdown's, at `Prec.high` — see lists.ts.)
     formattingKeymap(),
+    // Undo/redo (Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z; ⌘Z, ⌘⇧Z): the Yjs history for
+    // CRDT notes, CM6's for the rest — see ./undo.ts.
+    undoKeymap,
+    undoBeforeInput,
     // In-note find & replace panel (Mod-f, Mod-h / Mod-Alt-f).
     findReplace,
     listKeymap(),

@@ -525,6 +525,26 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
     backgroundColor: "var(--bg-subtle)",
     fontWeight: "700",
   },
+  // Rotated column headers (./table/rotation.ts): the title runs up (90°) or
+  // down (−90°), so the column is only as wide as its line height. Vertical
+  // writing-mode (not a transform alone) makes the BOX tall and narrow, which
+  // is what lets the column shrink; the extra 180° turn makes "up" read from
+  // the bottom. Long titles wrap at the same measure as a cell's width.
+  ".cm-md-table th.cm-md-th-rot-up, .cm-md-table th.cm-md-th-rot-down": {
+    padding: "var(--sp-2) var(--sp-1)",
+    textAlign: "center",
+  },
+  ".cm-md-table th.cm-md-th-rot-up": { verticalAlign: "bottom" },
+  ".cm-md-table th.cm-md-th-rot-down": { verticalAlign: "top" },
+  ".cm-md-table th.cm-md-th-rot-up .cm-md-cell, .cm-md-table th.cm-md-th-rot-down .cm-md-cell": {
+    writingMode: "vertical-rl",
+    maxWidth: "none",
+    maxHeight: "42ch",
+    minHeight: "0",
+    minWidth: "1.6em",
+    marginInline: "auto",
+  },
+  ".cm-md-table th.cm-md-th-rot-up .cm-md-cell": { transform: "rotate(180deg)" },
 
   // ---- The editable table (./table/TableWidget) ----
   // The widget's own container inside the scrolling `.cm-md-table` host: the
