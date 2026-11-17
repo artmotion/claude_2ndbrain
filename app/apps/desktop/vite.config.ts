@@ -45,6 +45,14 @@ export default defineConfig(async ({ mode }) => ({
      */
     assetsInlineLimit: (filePath: string) =>
       filePath.endsWith("recorder-worklet.js") ? false : undefined,
+    /**
+     * Vite's 500 kB warning is a network budget for websites. This app loads
+     * its chunks from disk inside the installer, so size costs milliseconds,
+     * not downloads; the biggest chunks are lazily loaded libraries (mermaid's
+     * ~2.2 MB, cytoscape). 3 MB keeps the log quiet while still flagging a
+     * chunk that suddenly balloons.
+     */
+    chunkSizeWarningLimit: 3000,
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
