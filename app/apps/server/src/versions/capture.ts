@@ -122,7 +122,8 @@ export interface CheckpointTopUp {
   apply(vaultId: string, checkpointId: string, docIds: string[]): Promise<string[]>;
 }
 
-export type VersionCause = "idle" | "pre-revert" | "pre-shrink";
+/** `pre-ai-edit`: the text an MCP (AI) write replaced (`mcp/service.ts aiEditContent`). */
+export type VersionCause = "idle" | "pre-revert" | "pre-shrink" | "pre-ai-edit";
 
 export function sha256Hex(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");

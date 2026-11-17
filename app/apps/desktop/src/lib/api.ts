@@ -704,7 +704,7 @@ export interface NoteVersion {
   createdAt: string;
   /** `idle` = captured at the end of an edit session; `pre-revert` = the state
    *  that was replaced, captured so a revert is itself undoable. */
-  cause: "idle" | "pre-revert";
+  cause: "idle" | "pre-revert" | "pre-shrink" | "pre-ai-edit";
   authorId: string | null;
   authorName: string | null;
   sha256: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EditError, findAnchor, foldForMatch, planEdits, replacementOp } from "../src/mcp/service.js";
+import { EditError, findAnchor, foldForMatch, planEdits, planEditsDetailed, replacementOp } from "../src/mcp/service.js";
 import { revisionOf } from "../src/mcp/doc-writer.js";
 import { parseEdits } from "../src/mcp/tools.js";
 
@@ -117,9 +117,15 @@ describe("planEdits — tolerant anchors", () => {
   });
 
   it("still refuses an ambiguous anchor under folding", () => {
-    const note = "a\u00a0b\na\u2003b\n";
-    expect(fails(note, [{ type: "delete", find: "a b" }]).code).toBe("anchor_ambiguous");
-    expect(apply(note, planEdits(note, [{ type: "delete", find: "a b\n", all: true }]))).toBe("");
+    const note = "alpha\u00a0beta\nalpha\u2003beta\n";
+    expect(fails(note, [{ type: "delete", find: "alpha beta" }]).code).toBe("anchor_ambiguous");
+  });
+
+  it("never folds a bulk (all: true) edit: nothing exact, nothing written", () => {
+    const note = "alpha\u00a0beta\nalpha\u2003beta\n";
+    const err = fails(note, [{ type: "delete", find: "alpha beta\n", all: true }]);
+    expect(err.code).toBe("anchor_not_found");
+    expect(err.message).toContain("only exact text");
   });
 
   it("points at the first line when a multi-line anchor drifts after it", () => {
@@ -187,5 +193,93 @@ describe("revisionOf", () => {
     expect(revisionOf("x")).toBe(revisionOf("x"));
     expect(revisionOf("x")).not.toBe(revisionOf("y"));
     expect(revisionOf("")).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("planEdits — the 2026-10-28 damage report (2ndBrain Improvements #1)", () => {
+  function fails(text: string, edits: Parameters<typeof planEdits>[1]): EditError {
+    try {
+      planEdits(text, edits);
+    } catch (e) {
+      return e as EditError;
+    }
+    throw new Error("expected a refusal");
+  }
+  // The real shape: emojis earlier in the note, en dashes and plain hyphens
+  // mixed, tables, bold list items. Replacing a dash that was no longer there
+  // used to fold onto plain hyphens AND land one character off per emoji.
+  const note = [
+    "# 🏋️ HYROX Plan 💪",
+    "",
+    "- **Knie:** Studio-Tage – Google-Kalender",
+    "",
+    "| Übung | Sätze |",
+    "|---|---|",
+    "| Seil-RDL | 40-45 |",
+    "",
+  ].join("\n");
+
+  it("foldForMatch maps a surrogate pair to two units (no drift after an emoji)", () => {
+    const { folded, map } = foldForMatch("💪a");
+    expect(folded).toBe("💪a");
+    expect(map).toEqual([0, 1, 2, 3]);
+  });
+
+  it("an exact all: true replace changes only that character", () => {
+    const plan = planEditsDetailed(note, [{ type: "replace", find: "–", replace: "-", all: true }]);
+    expect(apply(note, plan.ops)).toBe(note.replace("–", "-"));
+    expect(plan.applied).toBe(1);
+    expect(plan.reports).toEqual([{ edit: 1, type: "replace", matchMode: "exact", count: 1 }]);
+  });
+
+  it("replacing a dash that is no longer there writes NOTHING and says so", () => {
+    const cleaned = note.replace("–", "-");
+    const err = fails(cleaned, [{ type: "replace", find: "–", replace: "-", all: true }]);
+    expect(err.code).toBe("anchor_not_found");
+    // Single, short and punctuation-only anchors never fold either.
+    expect(fails(cleaned, [{ type: "replace", find: "—", replace: "-" }]).code).toBe("anchor_not_found");
+  });
+
+  it("a fuzzy match is reported, with the original text it hit, and never splits a word", () => {
+    const plan = planEditsDetailed(note, [{ type: "replace", find: "Studio-Tage - Google", replace: "Studio-Tage: Google" }]);
+    expect(apply(note, plan.ops)).toContain("Studio-Tage: Google-Kalender");
+    expect(plan.reports[0]).toMatchObject({ matchMode: "fuzzy", count: 1, matches: [{ line: 3, original: "Studio-Tage – Google" }] });
+    // "tudio-Tage – Goo" would only match inside words: refused.
+    expect(fails(note, [{ type: "replace", find: "tudio-Tage - Goo", replace: "x" }]).code).toBe("anchor_not_found");
+  });
+
+  it("normalize_text swaps exact characters everywhere, longest key first", () => {
+    const text = "a – b — c → d × e −1 ->";
+    const plan = planEditsDetailed(text, [
+      { type: "normalize_text", map: { "–": "-", "—": "-", "→": "->", "×": "x", "−": "-", "->": "→" } },
+    ]);
+    expect(apply(text, plan.ops)).toBe("a - b - c -> d x e -1 →");
+    expect(plan.reports[0]).toMatchObject({ matchMode: "normalize", count: 6 });
+    // Leaves the damage-report note intact apart from the one dash.
+    expect(apply(note, planEdits(note, [{ type: "normalize_text", map: { "–": "-", "—": "-" } }]))).toBe(
+      note.replace("–", "-"),
+    );
+  });
+
+  it("replace_regex: groups, all, ambiguity and a hard time limit", () => {
+    const text = "( a) ( b) (c)";
+    expect(apply(text, planEdits(text, [{ type: "replace_regex", pattern: "\\(\\s+", replace: "(", all: true }]))).toBe(
+      "(a) (b) (c)",
+    );
+    expect(apply("x=1, y=2", planEdits("x=1, y=2", [{ type: "replace_regex", pattern: "(?<k>y)=(\\d)", replace: "$<k>:$2$$" }]))).toBe(
+      "x=1, y:2$",
+    );
+    expect(fails(text, [{ type: "replace_regex", pattern: "\\(", replace: "[" }]).code).toBe("anchor_ambiguous");
+    expect(fails(text, [{ type: "replace_regex", pattern: "zzz", replace: "" }]).code).toBe("anchor_not_found");
+    expect(fails(text, [{ type: "replace_regex", pattern: "(", replace: "" }]).code).toBe("bad_regex");
+    expect(fails(text, [{ type: "replace_regex", pattern: "a", flags: "g", replace: "" }]).code).toBe("bad_regex");
+    const slow = Date.now();
+    expect(fails("a".repeat(40) + "b", [{ type: "replace_regex", pattern: "^(a+)+$", replace: "" }]).code).toBe("bad_regex");
+    expect(Date.now() - slow).toBeLessThan(5000);
+  });
+
+  it("previews each change with context for a dry run", () => {
+    const plan = planEditsDetailed(note, [{ type: "replace", find: "40-45", replace: "40–45" }]);
+    expect(plan.previews).toEqual([{ edit: 1, line: 7, before: expect.stringContaining("| Seil-RDL | 40-45 |"), after: expect.stringContaining("| Seil-RDL | 40–45 |") }]);
   });
 });

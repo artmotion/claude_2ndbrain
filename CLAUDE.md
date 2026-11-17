@@ -824,7 +824,7 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   and counts only, never paths or text.
 - `tokens/sync-token.ts` — HS256 per-doc JWT (`jose`), TTL `SYNC_TOKEN_TTL_SECONDS` (default 600).
 - `mcp/` — JSON-RPC 2.0 over Streamable HTTP at `POST /api/mcp` (no SSE; GET/DELETE → 405). Tools:
-  `list_vaults/list_folders/create_folder/move_folder/delete_folder/list_notes/read_note/search_notes/create_note/update_note/append_note/edit_note/move_note/delete_note/list_attachments/read_attachment_text/move_file/delete_file`
+  `list_vaults/list_folders/create_folder/move_folder/delete_folder/list_notes/read_note/search_notes/create_note/update_note/append_note/edit_note/move_note/delete_note/list_attachments/read_attachment_text/move_file/delete_file/list_versions/restore_version`
   plus the section tools `list_sections/create_section/update_section/delete_section/add_block_id`
   and `read_note`'s `section` (pure plans in `src/markdown/section-ops.ts`, run under the doc writer's
   lock; an `update_section` rename rewrites `[[Note#Old]]` in every linking note the caller may edit,
@@ -841,6 +841,16 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   carry `anchor_not_found`/`anchor_ambiguous`/`stale_revision`/`bad_edit`/`note_too_large` codes and
   every tool counts `mcp.tool.<name>.ok|refused[.<code>]|internal` in the sync metrics), `update_note` sends only the changed span, and
   `append_note` accepts an `idempotencyKey` so a retried call cannot append twice.
+  **`edit_note` safety (2026-11-17, `mcp/edit-plan.ts`):** the tolerant fallback never runs for `all: true`,
+  for anchors under `FUZZY_MIN_CHARS` (8) or without a letter/digit, and a folded hit must start and end
+  on word boundaries; `foldForMatch`'s `map` is per UTF-16 unit (it used to be per code point, so every
+  emoji shifted a fuzzy replacement one character right — "Studio-Tage" → "Studio-T-ge"). Results carry
+  `applied` (places changed) and per-edit `edits[]` (`matchMode` exact|fuzzy|normalize|regex, fuzzy hits
+  with their original text); `dryRun: true` returns before/after `preview`s without writing. Edit types
+  `normalize_text` (exact `map`, one longest-key-first pass) and `replace_regex` (JS regex in a `vm`
+  context with a `REGEX_TIMEOUT_MS` 1 s limit, refusals `bad_regex`). Every MCP content write goes through
+  `aiEditContent`, which keeps the replaced text as a `pre-ai-edit` version (migration 059; desktop label
+  "Before AI edit"); `list_versions` / `restore_version` (itself undoable) read and restore them.
   Structural tools (create/move/delete of folders and notes) broadcast `registry-changed` with a
   `null` origin, and content writes fan out through `createDocWriter`, so an AI edit lands live on
   every open app exactly like a teammate's. `delete_folder` refuses a non-empty folder unless

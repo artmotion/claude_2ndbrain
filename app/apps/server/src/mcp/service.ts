@@ -58,6 +58,9 @@ import {
   type UpdateSectionInput,
 } from "../markdown/section-ops.js";
 import { softDeleteSet } from "../trash/retention.js";
+import { recordVersion, stampLastEdited } from "../versions/capture.js";
+import { VERSION_CONTENT, VERSION_TEXT_JOIN } from "../versions/texts.js";
+import { EditError, planEditsDetailed, type EditPlan, type NoteEdit } from "./edit-plan.js";
 import { deleteRegisteredFile } from "../http/routes/registry.js";
 import { registerCtx, registerFile } from "../registry/batch-ops.js";
 
@@ -814,7 +817,8 @@ export async function updateNote(
   // The actor rides along so the edit is attributed to the MCP token's user —
   // an AI write shows up as "edited by <that user>" like any teammate's.
   const { revision } = await writeOrToolError(() =>
-    ctx.docWriter.editContent(
+    aiEditContent(
+      ctx,
       note.vault_id,
       docId,
       (current) => {
@@ -877,7 +881,8 @@ export async function appendNote(
     if (prior) return { docId, appended: 0, duplicate: true, revision: prior.revision };
   }
   const { revision } = await writeOrToolError(() =>
-    ctx.docWriter.editContent(
+    aiEditContent(
+      ctx,
       note.vault_id,
       docId,
       (current) => {
@@ -894,261 +899,179 @@ export async function appendNote(
 
 // ── targeted edits (#78) ────────────────────────────────────────────────────
 
-/** One `edit_note` instruction. Anchors are matched EXACTLY (no regex). */
-export type NoteEdit =
-  | { type: "replace"; find: string; replace: string; all?: boolean }
-  | { type: "insert_before"; anchor: string; text: string }
-  | { type: "insert_after"; anchor: string; text: string }
-  | { type: "delete"; find: string; all?: boolean };
-
-/**
- * An edit's anchor was missing or ambiguous — nothing was written. `code` is
- * surfaced on the tool result (and counted in the sync metrics) so a refusal can
- * be told apart from a crash without reading prose.
- */
-export class EditError extends Error {
-  constructor(
-    message: string,
-    readonly code: "anchor_not_found" | "anchor_ambiguous" | "bad_edit" = "bad_edit",
-  ) {
-    super(message);
-  }
-}
-
-function occurrences(haystack: string, needle: string): number[] {
-  const out: number[] = [];
-  let from = 0;
-  for (;;) {
-    const i = haystack.indexOf(needle, from);
-    if (i === -1) return out;
-    out.push(i);
-    from = i + needle.length;
-  }
-}
-
-function anchorOf(edit: NoteEdit): string {
-  return edit.type === "replace" || edit.type === "delete" ? edit.find : edit.anchor;
-}
-
-// ── tolerant anchor matching ────────────────────────────────────────────────
-//
-// An agent copies its anchor out of `read_note`'s JSON, and that copy is not
-// always byte-exact: a model rewrites a non-breaking or ideographic space as a
-// plain space, drops zero-width characters it cannot see, straightens curly
-// quotes, turns an en/em dash into a hyphen, collapses doubled spaces, loses the
-// trailing spaces before a newline, or hands back NFC where the note holds NFD.
-// Each of those used to be "anchor not found" (an `isError` result), and they
-// were the bulk of edit_note's failures. Exact matching still runs first and
-// wins; folding is a FALLBACK that only engages when the exact anchor is absent,
-// and the same exactly-once rule applies to the folded text, so a tolerant match
-// can never pick between two candidates.
-//
-// `foldForMatch` returns the folded string plus `map`, where `map[i]` is the
-// original index of folded character `i` and `map[folded.length]` is the
-// original length. A folded span `[a, b)` therefore covers the original span
-// `[map[a], map[b])`, which is what the op deletes — the agent's replacement
-// text goes in verbatim; folding never rewrites the note.
-
-const UNICODE_SPACES = new Set([
-  "\u00a0", "\u1680", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005",
-  "\u2006", "\u2007", "\u2008", "\u2009", "\u200a", "\u202f", "\u205f", "\u3000",
-]);
-const ZERO_WIDTH = new Set(["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff", "\u00ad"]);
-const FOLD_CHAR: Record<string, string> = {
-  "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u2032": "'",
-  "\u201c": '"', "\u201d": '"', "\u201e": '"', "\u201f": '"', "\u2033": '"',
-  "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-",
-};
-const COMBINING = /\p{M}/u;
-
-/** Fold one already-NFC character (or the empty string to drop it). */
-function foldChar(ch: string): string {
-  if (ch === "\t" || UNICODE_SPACES.has(ch)) return " ";
-  if (ZERO_WIDTH.has(ch)) return "";
-  return FOLD_CHAR[ch] ?? ch;
-}
-
-export interface Folded {
-  folded: string;
-  map: number[];
-}
-
-/**
- * Normalise `s` for matching. Rules (all many-to-one or many-to-zero, never
- * one-to-many, so every folded index maps back to one original index):
- * CRLF/CR → LF · tabs and Unicode spaces → space · a run of spaces collapses to
- * one, and vanishes before a line break or the end · zero-width characters and
- * soft hyphens vanish · curly quotes, primes and dashes straighten · a base
- * character plus its combining marks is NFC-composed as one group.
- */
-export function foldForMatch(s: string): Folded {
-  const out: string[] = [];
-  const map: number[] = [];
-  const hasMarks = COMBINING.test(s);
-  let i = 0;
-  const n = s.length;
-  while (i < n) {
-    const start = i;
-    let group = s[i];
-    i++;
-    // Surrogate pair → one code point.
-    if (group.charCodeAt(0) >= 0xd800 && group.charCodeAt(0) <= 0xdbff && i < n) {
-      group += s[i];
-      i++;
-    }
-    if (hasMarks) {
-      while (i < n && COMBINING.test(s[i])) {
-        group += s[i];
-        i++;
-      }
-      group = group.normalize("NFC");
-    }
-    if (group === "\r") {
-      if (s[i] === "\n") i++;
-      out.push("\n");
-      map.push(start);
-      continue;
-    }
-    const folded = group.length === 1 ? foldChar(group) : group;
-    if (folded === " ") {
-      // Swallow the whole run; drop it entirely before a line break / the end.
-      while (i < n && (s[i] === " " || s[i] === "\t" || UNICODE_SPACES.has(s[i]))) i++;
-      const atBreak = i >= n || s[i] === "\n" || s[i] === "\r";
-      if (!atBreak) {
-        out.push(" ");
-        map.push(start);
-      }
-      continue;
-    }
-    for (const c of folded) {
-      out.push(c);
-      map.push(start);
-    }
-  }
-  map.push(n);
-  return { folded: out.join(""), map };
-}
-
-/** `[start, end)` original spans of `anchor` in `text`, exact first, folded as a fallback. */
-export function findAnchor(
-  text: string,
-  anchor: string,
-): { spans: Array<[number, number]>; folded: boolean } {
-  const exact = occurrences(text, anchor);
-  if (exact.length > 0) {
-    return { spans: exact.map((at) => [at, at + anchor.length]), folded: false };
-  }
-  const fa = foldForMatch(anchor).folded;
-  if (fa.length === 0) return { spans: [], folded: true };
-  const ft = foldForMatch(text);
-  const hits = occurrences(ft.folded, fa);
-  return {
-    spans: hits.map((at) => [ft.map[at], ft.map[at + fa.length]]),
-    folded: true,
-  };
-}
-
-/** 1-based line of `index` in `text`. */
-function lineAt(text: string, index: number): number {
-  let line = 1;
-  for (let i = 0; i < index && i < text.length; i++) if (text[i] === "\n") line++;
-  return line;
-}
-
-/**
- * When the whole anchor is absent, say where its first line is — an agent that
- * pasted a multi-line anchor usually got the first line right and drifted after
- * it, and a line number lets it re-read just that part instead of guessing.
- */
-function notFoundHint(text: string, anchor: string): string {
-  const first = anchor.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);
-  if (!first || first === anchor.trim()) return "";
-  const { spans } = findAnchor(text, first);
-  if (spans.length !== 1) return "";
-  return ` Its first line appears alone at line ${lineAt(text, spans[0][0])}; the rest differs from the note.`;
-}
-
-/**
- * Turn `edits` into ops against `current`, in order — each edit is matched in
- * the text as left by the previous ones, and its ops are emitted with indices
- * relative to that text (which is exactly how `TextOp`s are applied).
- *
- * Strict on purpose: an anchor must occur EXACTLY once unless the edit says
- * `all`. "Not found" and "ambiguous" are both refused with the count, so an
- * agent gets a conflict it can reason about instead of a change in the wrong
- * place — the failure mode this tool exists to remove. Exact matches win; when
- * there is none, the tolerant fold above gets one try under the same rule.
- */
-export function planEdits(current: string, edits: NoteEdit[]): TextOp[] {
-  if (edits.length === 0) throw new EditError("edit_note needs at least one edit");
-  const ops: TextOp[] = [];
-  let text = current;
-  edits.forEach((edit, n) => {
-    const anchor = anchorOf(edit);
-    if (typeof anchor !== "string" || anchor.length === 0) {
-      throw new EditError(`edit ${n + 1}: the anchor text must be a non-empty string`);
-    }
-    const { spans } = findAnchor(text, anchor);
-    const all = (edit.type === "replace" || edit.type === "delete") && edit.all === true;
-    if (spans.length === 0) {
-      throw new EditError(
-        `edit ${n + 1} (${edit.type}): anchor not found — the note may have changed; read it again.` +
-          notFoundHint(text, anchor),
-        "anchor_not_found",
-      );
-    }
-    if (spans.length > 1 && !all) {
-      throw new EditError(
-        `edit ${n + 1} (${edit.type}): anchor matches ${spans.length} times — include more surrounding text to make it unique` +
-          (edit.type === "replace" || edit.type === "delete" ? ", or set all: true" : ""),
-        "anchor_ambiguous",
-      );
-    }
-    const targets = all ? spans : [spans[0]];
-    // Apply right-to-left so earlier indices stay valid within this one edit.
-    for (const [at, end] of [...targets].reverse()) {
-      let op: TextOp;
-      switch (edit.type) {
-        case "replace":
-          op = { index: at, deleteLength: end - at, insert: edit.replace };
-          break;
-        case "delete":
-          op = { index: at, deleteLength: end - at, insert: "" };
-          break;
-        case "insert_before":
-          op = { index: at, deleteLength: 0, insert: edit.text };
-          break;
-        case "insert_after":
-          op = { index: end, deleteLength: 0, insert: edit.text };
-          break;
-      }
-      ops.push(op);
-      text = text.slice(0, op.index) + op.insert + text.slice(op.index + op.deleteLength);
-    }
-  });
-  return ops;
-}
+// The planner lives in ./edit-plan.ts (pure); re-exported for the tools and tests.
+export {
+  EditError,
+  findAnchor,
+  foldForMatch,
+  fuzzyAllowed,
+  planEdits,
+  planEditsDetailed,
+  type EditPlan,
+  type EditReport,
+  type NoteEdit,
+} from "./edit-plan.js";
 
 export async function editNote(
   ctx: McpContext,
   docId: string,
   edits: NoteEdit[],
   expectedRevision?: string,
+  opts: { dryRun?: boolean } = {},
 ) {
   const note = await requireEditableNote(ctx.auth, docId);
+  if (opts.dryRun) {
+    // Plan against the text as it is now and write nothing. Not under the
+    // write lock (nothing is written); the returned revision lets the agent
+    // pin the real call to exactly the text it previewed.
+    const current = await ctx.docWriter.readContent(note.vault_id, docId);
+    const plan = await writeOrToolError(async () => {
+      requireRevision(current, expectedRevision);
+      return planEditsDetailed(current, edits);
+    });
+    return {
+      docId,
+      dryRun: true,
+      applied: plan.applied,
+      edits: plan.reports,
+      preview: plan.previews,
+      previewTruncated: plan.previewsTruncated,
+      revision: revisionOf(current),
+    };
+  }
+  let plan: EditPlan | undefined;
   const { revision, content } = await writeOrToolError(() =>
-    ctx.docWriter.editContent(
+    aiEditContent(
+      ctx,
       note.vault_id,
       docId,
       (current) => {
         requireRevision(current, expectedRevision);
-        return planEdits(current, edits);
+        plan = planEditsDetailed(current, edits);
+        return plan.ops;
       },
       { userId: ctx.auth.userId },
     ),
   );
   await pool.query("UPDATE notes SET updated_at = now() WHERE id = $1", [docId]);
-  return { docId, applied: edits.length, bytes: content.length, revision };
+  // `applied` is the number of PLACES changed (an `all` edit counts each one),
+  // not the number of edits; `edits` says how each matched.
+  return { docId, applied: plan!.applied, edits: plan!.reports, bytes: content.length, revision };
+}
+
+// ── safety net: a version before every AI write ─────────────────────────────
+//
+// Every content write an MCP tool makes keeps the text it replaced as a
+// `pre-ai-edit` version (the same content-addressed `note_versions` the app's
+// Version History lists), so a damaging edit is undone with `restore_version`
+// — or from the app — instead of by rewriting the note from memory. Recorded
+// AFTER the write, from the exact text the plan saw under the doc lock, so a
+// refused edit leaves no row; `recordVersion` dedupes against the newest
+// version, so repeated edits of an unchanged base add nothing.
+
+async function aiEditContent(
+  ctx: McpContext,
+  vaultId: string,
+  docId: string,
+  plan: (current: string) => TextOp[],
+  actor: { userId: string },
+): Promise<{ revision: string; content: string }> {
+  let before: string | null = null;
+  const out = await ctx.docWriter.editContent(
+    vaultId,
+    docId,
+    (current) => {
+      const ops = plan(current);
+      before = current;
+      return ops;
+    },
+    actor,
+  );
+  if (before !== null && before !== out.content) {
+    try {
+      await recordVersion({ vaultId, docId, content: before, cause: "pre-ai-edit", authorId: ctx.auth.userId });
+    } catch (err) {
+      // The edit itself succeeded; a failed safety copy must not turn it into an error.
+      console.error("[mcp] could not keep the pre-edit version", docId, err);
+    }
+  }
+  return out;
+}
+
+/** How many versions `list_versions` returns at most. */
+const LIST_VERSIONS_MAX = 50;
+
+export async function listVersions(ctx: McpContext, docId: string) {
+  const note = await locateNote(ctx.auth, docId);
+  const perm = await effectivePermission(ctx.auth.userId, docId);
+  if (perm === "none") throw new McpToolError("You do not have access to this note");
+  const { rows } = await pool.query<{
+    id: string;
+    created_at: Date;
+    cause: string;
+    author_name: string | null;
+    sha256: string;
+    size: number | null;
+  }>(
+    `SELECT v.id, v.created_at, v.cause, u.name AS author_name, v.sha256,
+            octet_length(${VERSION_CONTENT}) AS size
+       FROM note_versions v
+       ${VERSION_TEXT_JOIN}
+       LEFT JOIN "user" u ON u.id = v.author_id
+      WHERE v.doc_id = $1
+      ORDER BY v.id DESC
+      LIMIT $2`,
+    [docId, LIST_VERSIONS_MAX],
+  );
+  return {
+    docId,
+    relPath: note.rel_path,
+    versions: rows.map((r) => ({
+      versionId: Number(r.id),
+      createdAt: new Date(r.created_at).toISOString(),
+      cause: r.cause,
+      author: r.author_name,
+      bytes: r.size ?? 0,
+      // The same digest `read_note` calls `revision` — a version whose
+      // revision equals the note's is the text it holds right now.
+      revision: r.sha256,
+    })),
+  };
+}
+
+export async function restoreVersion(
+  ctx: McpContext,
+  docId: string,
+  versionId: number,
+  expectedRevision?: string,
+) {
+  const note = await requireEditableNote(ctx.auth, docId);
+  const { rows } = await pool.query<{ doc_id: string; content: string | null }>(
+    `SELECT v.doc_id, ${VERSION_CONTENT} AS content
+       FROM note_versions v ${VERSION_TEXT_JOIN} WHERE v.id = $1`,
+    [versionId],
+  );
+  const version = rows[0];
+  if (!version || version.doc_id !== docId) throw new McpToolError("Unknown version for this note", "not_found");
+  if (version.content == null) throw new McpToolError("That version's text is no longer available", "not_found");
+  const target = version.content;
+  // A restore is itself an AI write: the text it replaces is kept as a
+  // `pre-ai-edit` version, so the restore can be undone the same way.
+  const { revision, content } = await writeOrToolError(() =>
+    aiEditContent(
+      ctx,
+      note.vault_id,
+      docId,
+      (current) => {
+        requireRevision(current, expectedRevision);
+        return replacementOp(current, target);
+      },
+      { userId: ctx.auth.userId },
+    ),
+  );
+  await pool.query("UPDATE notes SET updated_at = now() WHERE id = $1", [docId]);
+  await stampLastEdited(docId, ctx.auth.userId);
+  return { docId, restoredVersionId: versionId, bytes: content.length, revision };
 }
 
 // ── sections: headings and ^block-ids ───────────────────────────────────────
@@ -1198,7 +1121,8 @@ async function writeSection<T extends { text: string }>(
 ): Promise<{ result: T; revision: string }> {
   let result: T | undefined;
   const { revision } = await writeOrToolError(() =>
-    ctx.docWriter.editContent(
+    aiEditContent(
+      ctx,
       note.vault_id,
       docId,
       (current) => {
@@ -1272,7 +1196,8 @@ async function renameLinksElsewhere(
       continue;
     }
     let count = 0;
-    await ctx.docWriter.editContent(
+    await aiEditContent(
+      ctx,
       note.vault_id,
       row.from_doc,
       (current) => {

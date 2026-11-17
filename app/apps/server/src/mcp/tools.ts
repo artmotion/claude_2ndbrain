@@ -24,6 +24,8 @@ import {
   manageAccessTool,
   readAttachmentText,
   readNote,
+  listVersions,
+  restoreVersion,
   searchNotes,
   setAccessDefaultTool,
   updateNote,
@@ -215,9 +217,34 @@ export function parseEdits(raw: unknown): NoteEdit[] {
         return { type: "insert_before", anchor: str("anchor", "find"), text: str("text", "replace") };
       case "insert_after":
         return { type: "insert_after", anchor: str("anchor", "find"), text: str("text", "replace") };
+      case "normalize_text": {
+        const map = o.map;
+        if (!map || typeof map !== "object" || Array.isArray(map)) {
+          throw new McpToolError(`edits[${i}].map must be an object of exact text → replacement`, "bad_edit");
+        }
+        for (const [k, v] of Object.entries(map as Args)) {
+          if (k === "" || typeof v !== "string") {
+            throw new McpToolError(`edits[${i}].map needs non-empty keys and string values`, "bad_edit");
+          }
+        }
+        return { type: "normalize_text", map: map as Record<string, string> };
+      }
+      case "replace_regex": {
+        const flags = o.flags;
+        if (flags !== undefined && typeof flags !== "string") {
+          throw new McpToolError(`edits[${i}].flags must be a string`, "bad_edit");
+        }
+        return {
+          type: "replace_regex",
+          pattern: str("pattern", "find"),
+          replace: str("replace", "text"),
+          ...(flags !== undefined ? { flags } : {}),
+          ...(all !== undefined ? { all } : {}),
+        };
+      }
       default:
         throw new McpToolError(
-          `edits[${i}].type must be one of replace, insert_before, insert_after, delete`,
+          `edits[${i}].type must be one of replace, insert_before, insert_after, delete, normalize_text, replace_regex`,
           "bad_edit",
         );
     }
@@ -531,12 +558,16 @@ export const TOOLS: McpTool[] = [
     name: "edit_note",
     annotations: { title: "Edit note", ...CREATE },
     description:
-      "Make targeted edits to a note without resending the whole body: replace exact text, insert before/after an anchor, or delete exact text. Each anchor must match exactly once (or set all: true for replace/delete); a missing or ambiguous anchor refuses the whole call with nothing written. Edits apply in order. Pass expectedRevision from read_note to also refuse the call if the note changed since you read it.",
+      "Make targeted edits to a note without resending the whole body: replace exact text, insert before/after an anchor, delete exact text, swap characters everywhere (normalize_text, e.g. {\"–\": \"-\"}) or replace a regular expression (replace_regex). Each anchor must match exactly once (or set all: true for replace/delete/replace_regex); a missing or ambiguous anchor refuses the whole call with nothing written. With all: true only EXACT text is replaced. Edits apply in order. The result's `applied` is the number of places changed and `edits[]` says per edit how it matched (matchMode exact | fuzzy | normalize | regex; a fuzzy match lists the original text it hit). Set dryRun: true to see the changes (before/after excerpts) without writing. Pass expectedRevision from read_note to also refuse the call if the note changed since you read it. Every write keeps the replaced text as a version: undo with list_versions + restore_version.",
     inputSchema: {
       type: "object",
       properties: {
         docId: S("Note docId"),
         expectedRevision: S("Optional `revision` from read_note; refuses the edit if the note changed."),
+        dryRun: {
+          type: "boolean",
+          description: "Plan the edits and return what would change (count, matchMode, before/after excerpts) WITHOUT writing.",
+        },
         edits: {
           type: "array",
           minItems: 1,
@@ -546,16 +577,23 @@ export const TOOLS: McpTool[] = [
             properties: {
               type: {
                 type: "string",
-                enum: ["replace", "insert_before", "insert_after", "delete"],
+                enum: ["replace", "insert_before", "insert_after", "delete", "normalize_text", "replace_regex"],
                 description: "What to do at the anchor.",
               },
-              find: S("Exact text to replace or delete (replace / delete). Matched exactly first; if absent, matched ignoring differences in whitespace, quotes, dashes and Unicode form."),
-              replace: S("Replacement text (replace)"),
+              find: S("Exact text to replace or delete (replace / delete). Matched exactly first; if absent — and only for a single (not all) anchor of at least 8 characters containing a letter or digit — matched ignoring differences in whitespace, quotes, dashes and Unicode form, on word boundaries."),
+              replace: S("Replacement text (replace, replace_regex — may use $1, $<name>, $&, $$)"),
+              map: {
+                type: "object",
+                additionalProperties: { type: "string" },
+                description: "normalize_text: exact text → replacement, applied everywhere in one pass, longest key first, never fuzzy. E.g. {\"–\": \"-\", \"—\": \"-\", \"→\": \"->\", \"×\": \"x\"}.",
+              },
+              pattern: S("replace_regex: a JavaScript regular expression source (no slashes)"),
+              flags: S("replace_regex: optional flags from i, m, s, u, v (g is implied)"),
               anchor: S("Exact text to insert next to (insert_before / insert_after)"),
               text: S("Text to insert (insert_before / insert_after)"),
               all: {
                 type: "boolean",
-                description: "replace / delete only: apply to every occurrence instead of requiring exactly one.",
+                description: "replace / delete / replace_regex: apply to every occurrence instead of requiring exactly one. Exact text only.",
               },
             },
             required: ["type"],
@@ -567,7 +605,45 @@ export const TOOLS: McpTool[] = [
       additionalProperties: false,
     },
     handler: (ctx, a) =>
-      editNote(ctx, reqStr(a, "docId"), parseEdits(a.edits), optStr(a, "expectedRevision")),
+      editNote(ctx, reqStr(a, "docId"), parseEdits(a.edits), optStr(a, "expectedRevision"), {
+        dryRun: optBool(a, "dryRun") ?? false,
+      }),
+  },
+  {
+    name: "list_versions",
+    annotations: { title: "List note versions", ...READ },
+    description:
+      "List a note's saved versions, newest first (id, time, cause, author, size, revision). Every AI write keeps the text it replaced as a `pre-ai-edit` version; `idle` versions are saved while people edit. Use restore_version to go back to one.",
+    inputSchema: {
+      type: "object",
+      properties: { docId: S("Note docId") },
+      required: ["docId"],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => listVersions(ctx, reqStr(a, "docId")),
+  },
+  {
+    name: "restore_version",
+    annotations: { title: "Restore note version", ...REPLACE },
+    description:
+      "Put a note's text back to one of its versions (from list_versions), as a normal edit that merges live into open editors. The text it replaces is kept as a new version, so the restore can be undone too.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        docId: S("Note docId"),
+        versionId: { type: "number", description: "The versionId from list_versions" },
+        expectedRevision: S("Optional `revision` from read_note; refuses the restore if the note changed."),
+      },
+      required: ["docId", "versionId"],
+      additionalProperties: false,
+    },
+    handler: (ctx, a) => {
+      const versionId = optNum(a, "versionId");
+      if (versionId === undefined || !Number.isInteger(versionId)) {
+        throw new McpToolError("versionId must be an integer", "bad_edit");
+      }
+      return restoreVersion(ctx, reqStr(a, "docId"), versionId, optStr(a, "expectedRevision"));
+    },
   },
   {
     name: "create_section",

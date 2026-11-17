@@ -363,6 +363,60 @@ describe("MCP server", () => {
       expect(mem.store.get(docId)).toBe("clobber");
     });
 
+    it("edit_note dryRun previews without writing; a real edit reports places changed and match modes", async () => {
+      const before = mem.store.get(docId);
+      const dry = await call(token, "edit_note", {
+        docId,
+        dryRun: true,
+        edits: [{ type: "normalize_text", map: { "-": "*" } }],
+      });
+      expect(dry.isError).toBe(false);
+      expect(dry.data.dryRun).toBe(true);
+      expect(dry.data.applied).toBe(2);
+      expect(dry.data.preview).toHaveLength(2);
+      expect(dry.data.preview[0].after).toContain("* one");
+      expect(mem.store.get(docId)).toBe(before);
+
+      const res = await call(token, "edit_note", {
+        docId,
+        expectedRevision: dry.data.revision,
+        edits: [{ type: "replace", find: "- ", replace: "* ", all: true }],
+      });
+      expect(res.data.applied).toBe(2);
+      expect(res.data.edits).toEqual([{ edit: 1, type: "replace", matchMode: "exact", count: 2 }]);
+      expect(mem.store.get(docId)).toBe("# Plan\n\n* one\n* two\n");
+
+      // all: true never falls back to tolerant matching: nothing exact, nothing written.
+      const none = await call(token, "edit_note", { docId, edits: [{ type: "replace", find: "– ", replace: "x", all: true }] });
+      expect(none.isError).toBe(true);
+      expect(mem.store.get(docId)).toBe("# Plan\n\n* one\n* two\n");
+    });
+
+    it("every AI write keeps the replaced text as a version, and restore_version brings it back", async () => {
+      const original = mem.store.get(docId);
+      await call(token, "edit_note", { docId, edits: [{ type: "replace", find: "- one", replace: "- ONE" }] });
+      await call(token, "update_note", { docId, content: "wiped" });
+
+      const list = await call(token, "list_versions", { docId });
+      expect(list.isError).toBe(false);
+      const causes = list.data.versions.map((v: any) => v.cause);
+      expect(causes).toEqual(["pre-ai-edit", "pre-ai-edit"]);
+      const oldest = list.data.versions[list.data.versions.length - 1];
+      expect(oldest.revision).toBe((await import("../src/mcp/doc-writer.js")).revisionOf(original!));
+
+      const restored = await call(token, "restore_version", { docId, versionId: oldest.versionId });
+      expect(restored.isError).toBe(false);
+      expect(mem.store.get(docId)).toBe(original);
+      // The restore is undoable too: "wiped" is now a version.
+      const again = await call(token, "list_versions", { docId });
+      expect(again.data.versions[0].cause).toBe("pre-ai-edit");
+      expect(again.data.versions).toHaveLength(3);
+
+      // A version of another note is not found here.
+      const bad = await call(token, "restore_version", { docId, versionId: 999999 });
+      expect(bad.isError).toBe(true);
+    });
+
     it("edit_note applies targeted edits and refuses missing/ambiguous anchors as a whole", async () => {
       const res = await call(token, "edit_note", {
         docId,

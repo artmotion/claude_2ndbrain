@@ -8,7 +8,7 @@
 import { relativeAgo } from "./Identity";
 
 /** Why a version exists, as the server records it. */
-export type VersionCause = "idle" | "pre-revert" | "pre-shrink";
+export type VersionCause = "idle" | "pre-revert" | "pre-shrink" | "pre-ai-edit";
 
 /** Millis for a server ISO timestamp; `null` when it can't be parsed. */
 export function parseIsoMs(iso: string | null | undefined): number | null {
@@ -28,11 +28,13 @@ export function agoFromIso(iso: string | null | undefined, now: number): string 
  * case (a version is captured when a note goes quiet); "Before revert" marks
  * the safety copy taken on the way into a revert, which is the entry people
  * come looking for when they want to undo one. "Before large deletion" is the
- * copy the server keeps right before one edit removes most of a note.
+ * copy the server keeps right before one edit removes most of a note, and
+ * "Before AI edit" the one it keeps before an MCP tool changes a note.
  */
 export function versionCauseLabel(cause: string): string {
   if (cause === "pre-revert") return "Before revert";
   if (cause === "pre-shrink") return "Before large deletion";
+  if (cause === "pre-ai-edit") return "Before AI edit";
   return "Auto-saved";
 }
 
