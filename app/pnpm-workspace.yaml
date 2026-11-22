@@ -8,11 +8,11 @@ packages:
 # wire protocol — a version skew between the two sides is a correctness bug
 # in the CRDT bridge, not just hygiene.
 catalog:
-  "@hocuspocus/provider": ^4.4.0
+  "@hocuspocus/provider": ^4.8.0
   typescript: ~5.8.3
   vitest: ^4.1.12
   y-protocols: ^1.0.7
-  yjs: ^13.6.31
+  yjs: ^13.6.33
 
 # pnpm 10 blocks dependency install scripts by default. These two are the
 # only packages in the lockfile that need them (esbuild's binary fetch,
