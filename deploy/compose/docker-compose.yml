@@ -129,7 +129,7 @@ services:
     # faces the internet, so a new release is taken on purpose (Dependabot
     # proposes it, at least 7 days after publication) rather than whenever the
     # host happens to pull. Distroless Debian 13 base, non-root, no Alpine.
-    image: docker.io/cloudflare/cloudflared:2026.10.7
+    image: docker.io/cloudflare/cloudflared:2026.11.0
     profiles: ["tunnel"]
     command: ["tunnel", "--no-autoupdate", "--config", "/etc/cloudflared/config.yml", "run"]
     volumes:
